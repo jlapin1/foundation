@@ -24,9 +24,9 @@ downstream:
   - denovo_ar
 load: False
 loadpath: save/2023-09-27_06-24-36.363775/weights/
-log: False
+log: True
 svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "First full test of pytorch (beat recall=0.37)"
+header: "delta tensor without shift, pw_units=256"

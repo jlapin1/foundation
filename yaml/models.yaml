@@ -5,6 +5,8 @@ encoder_dict:
   running_units: 512
   att_d: 64
   att_h: 8
+  pairwise_bias: True
+  pairwise_units: 256
   depth: 9
   ffn_multiplier: 4
   prenorm: True

@@ -40,6 +40,8 @@ class Encoder(nn.Module):
                  ce_units=256, # units for transformation of mzab fourier vectors
                  att_d=64, # attention qkv dimension units
                  att_h=4,  # attention qkv heads
+                 pairwise_bias=False, # use pairwise mz tensor to create SA-bias
+                 pairwise_units=None,
                  ffn_multiplier=4, # multiply inp units for 1st FFN transform
                  depth=9, # number of transblocks
                  prenorm=True, # normalization before attention/ffn layers
@@ -60,6 +62,8 @@ class Encoder(nn.Module):
         self.ce_units = ce_units
         self.d = att_d
         self.h = att_h
+        self.pairwise_bias = pairwise_bias
+        self.pw_units = mz_units if pairwise_units==None else pairwise_units
         self.depth = depth
         self.prenorm = prenorm
         self.norm_type = norm_type
@@ -71,9 +75,12 @@ class Encoder(nn.Module):
         self.alpha = nn.Parameter(th.tensor(0.1), requires_grad=True)
         
         mdim = mz_units//4 if subdivide else mz_units
-        self.MzSeq = nn.Sequential(
-            nn.Linear(mdim, mdim), nn.SiLU()
-        )
+        self.MzSeq = nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
+
+        # Pairwise mz
+        # - subidvide and expand based on mz_units, transform to pw_units
+        mdimpw = self.pw_units//4 if subdivide else self.pw_units
+        self.MzpwSeq = nn.Sequential(nn.Linear(mdim, mdimpw), nn.SiLU())
         
         # charge/energy/mass embedding transformation
         self.atleast1 = use_charge or use_energy or use_mass
@@ -85,9 +92,15 @@ class Encoder(nn.Module):
         
         # First transformation
         self.first = nn.Linear(mz_units+ab_units, running_units)
-        
+
         # Main block
-        attention_dict = {'indim': running_units, 'd': att_d, 'h': att_h}
+        attention_dict = {
+            'indim': running_units, 
+            'd': att_d, 
+            'h': att_h,
+            'pairwise_bias': pairwise_bias,
+            'bias_in_units': self.pw_units
+        }
         ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
         is_embed = True if self.atleast1 else False
         self.main = nn.ModuleList([
@@ -134,15 +147,15 @@ class Encoder(nn.Module):
         return sum([m.numel() for m in self.parameters()])
 
     def MzAb(self, x, inp_mask=None):
-        mz, ab = th.split(x, 1, -1)
+        Mz, ab = th.split(x, 1, -1)
         
-        mz = mz.squeeze()
+        Mz = Mz.squeeze()
         if self.subdivide:
-            mz = mp.subdivide_float(mz)
+            mz = mp.subdivide_float(Mz)
             minidim = self.mz_units//4
-            mz_emb = mp.FourierFeatures(mz, minidim, 1000.).to(x.device)
+            mz_emb = mp.FourierFeatures(mz, minidim, 1000.)#.to(x.device)
         else:
-            mz_emb = mp.FourierFeatures(mz, self.mz_units, 10000.).to(x.device)
+            mz_emb = mp.FourierFeatures(mz, self.mz_units, 10000.)#.to(x.device)
         mz_emb = self.MzSeq(mz_emb) # multiply sequential to mz fourier feature
         mz_emb = mz_emb.reshape(x.shape[0], x.shape[1], -1)
         # ASSUME ab comes in 0-1, multiply by 100 (0-100) before expansion
@@ -154,15 +167,30 @@ class Encoder(nn.Module):
             # Zeros out the feature's entire Fourier vector
             mz_emb *= mz_mask
             ab_emb *= ab_mask
+
+        # Pairwise features
+        if self.pairwise_bias:
+            dtsr = mp.delta_tensor(Mz, 0.)
+            # expand based on mz_units
+            if self.subdivide:
+                mzpw = mp.subdivide_float(dtsr)
+                mzpw_emb = mp.FourierFeatures(mzpw, minidim, 10000.)#.to(x.device)
+            else:
+                mzpw_emb = mp.FourierFeatures(dtsr, self.mz_units, 10000.)#.to(x.device)
+            # transform based on pw_units
+            mzpw_emb = self.MzpwSeq(mzpw_emb)
+            mzpw_emb = mzpw_emb.reshape(x.shape[0], x.shape[1], x.shape[1], -1)
+        else:
+            mzpw_emb = None
             
         out = th.cat([mz_emb, ab_emb], dim=-1)
 
-        return out
+        return {'1d': out, '2d': mzpw_emb}
     
-    def Main(self, inp, embed=None, mask=None):
+    def Main(self, inp, embed=None, mask=None, pwtsr=None):
         out = inp
         for layer in self.main:
-            out = layer(out, embed_feats=embed, spec_mask=mask)
+            out = layer(out, embed_feats=embed, spec_mask=mask, pwtsr=pwtsr)
         return self.main_proj(out)
     
     def UpdateEmbed(self, 
@@ -210,14 +238,16 @@ class Encoder(nn.Module):
             ce_emb = None
         
         # Feed forward
-        mabemb = self.MzAb(x, inp_mask)
+        mzab_dic = self.MzAb(x, inp_mask)
+        mabemb = mzab_dic['1d']
+        pwemb = mzab_dic['2d']
         """mabemb = tf.concat([mabemb, TagArray], axis=-1) # add before self.first"""
         out = self.first(mabemb) + self.alpha*self.pos
         
         # Reycling the embedding with normalization, perhaps dense transform
         out += self.recyc(emb)
         
-        emb = self.Main(out, embed=ce_emb, mask=mask) # AlphaFold has +=
+        emb = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb) # AlphaFold has +=
         
         output = (emb, mask) if return_mask else emb
         

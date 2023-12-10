@@ -55,13 +55,15 @@ class QKVAttention(nn.Module):
         
         return relpos_tsr
     
-    def forward(self, Q, K, V, mask=None):
+    def forward(self, Q, K, V, mask=None, bias=None):
         bsp, sl, dim = Q.shape
         # shape: batch/heads/etc, sequence_length, dim
         QK = th.einsum('abc,adc->abd', self.scale*Q, self.scale*K)
         if self.is_relpos:
             QK += th.einsum('abc,bec->abe', Q, self.ak)
         QK = QK.reshape(-1, self.heads, sl, K.shape[1])
+        if bias is not None:
+            QK += bias
         
         # mask.shape: bs, 1, 1, sl
         mask = th.zeros_like(QK) if mask==None else mask[:, None, None, :]
@@ -95,10 +97,20 @@ class BaseAttentionLayer(nn.Module):
         )
         
 class SelfAttention(BaseAttentionLayer):
-    def __init__(self, indim, d, h, out_units=None):
+    def __init__(self, 
+                 indim, 
+                 d, 
+                 h, 
+                 out_units=None, 
+                 pairwise_bias=False, 
+                 bias_in_units=None
+    ):
         super().__init__(indim=indim, d=d, h=h, out_units=out_units)
-        
+        self.pairwise_bias = pairwise_bias
+
         self.qkv = nn.Linear(indim, 3*d*h, bias=False)
+        if pairwise_bias:
+            self.pwbias = nn.Linear(bias_in_units, h)
         
     def get_qkv(self, qkv):
         bs, sl, units = qkv.shape
@@ -112,11 +124,16 @@ class SelfAttention(BaseAttentionLayer):
         
         return Q, K, V # bs*h, sl, d
     
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, pwtsr=None):
         bs, sl, units = x.shape
         qkv = self.qkv(x) # bs, sl, 3*d*h
         Q, K, V = self.get_qkv(qkv) # bs*h, sl, d
-        att = self.attention_layer(Q, K, V, mask) # bs*h, sl, d
+        if self.pairwise_bias:
+            bias = self.pwbias(pwtsr) # bs, sl, sl, h
+            bias = bias.permute([0,3,1,2]) # bs, h, sl, sl
+        else:
+            bias = None
+        att = self.attention_layer(Q, K, V, mask, bias=bias) # bs*h, sl, d
         att = att.reshape(-1, self.h, sl, self.d)
         att = att.permute([0,2,3,1])
         att = att.reshape(-1, sl, self.d*self.h) # bs, sl, d*h
@@ -207,6 +224,8 @@ class TransBlock(nn.Module):
         self.selfattention = SelfAttention(**attention_dict)
         if is_cross:
             cross_dict = attention_dict.copy()
+            if 'pairwise_bias' in cross_dict.keys(): cross_dict.pop('pairwise_bias')
+            if 'bias_in_units' in cross_dict.keys(): cross_dict.pop('bias_in_units')
             cross_dict['kvindim'] = kvindim
             self.crossnorm = norm(indim)
             self.crossattention = CrossAttention(**cross_dict)
@@ -222,14 +241,15 @@ class TransBlock(nn.Module):
                 kv_feats=None, 
                 embed_feats=None, 
                 spec_mask=None, 
-                seq_mask=None
+                seq_mask=None,
+                pwtsr=None,
     ):
         selfmask = seq_mask if self.is_cross else spec_mask
         Emb = self.embed(embed_feats)[:,None,:] if self.is_embed else 0
         
         out = x + self.alpha*Emb if self.preembed else x
         out = self.norm1(out) if self.prenorm else out
-        out = self.selfattention(out, selfmask)
+        out = self.selfattention(out, selfmask, pwtsr)
         if self.is_cross:
             out = self.crossnorm(out) if self.prenorm else out
             out = self.crossattention(out, kv_feats, spec_mask)
@@ -260,10 +280,17 @@ def FourierFeatures(t, embedsz, freq=10000.):
     return th.cat([embed.cos(), embed.sin()], dim=-1)
 
 def subdivide_float(x):
-    a = x.floor_divide(100)
-    b = (x-a*100).floor_divide(1)
-    x_ = ((x - x.floor_divide(1))*10000).round()
-    c = x_.floor_divide(100)
-    d = (x_ - c*100).floor_divide(1)
+    mul = -1*(x < 0).type(th.float32) + (x >= 0).type(th.float32)
+    X = abs(x)
+    a = X.floor_divide(100)
+    b = (X-a*100).floor_divide(1)
+    X_ = ((X - X.floor_divide(1))*10000).round()
+    c = X_.floor_divide(100)
+    d = (X_ - c*100).floor_divide(1)
     
-    return th.cat([a[...,None], b[...,None], c[...,None], d[...,None]], -1)
+    return mul[...,None] * th.cat([a[...,None], b[...,None], c[...,None], d[...,None]], -1)
+
+def delta_tensor(mz, shift=0):
+    return mz[..., None] - mz[:, None] + shift # bs, sl, sl
+
+
