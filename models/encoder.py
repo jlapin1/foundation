@@ -80,7 +80,7 @@ class Encoder(nn.Module):
         # Pairwise mz
         # - subidvide and expand based on mz_units, transform to pw_units
         mdimpw = self.pw_units//4 if subdivide else self.pw_units
-        self.MzpwSeq = nn.Sequential(nn.Linear(mdim, mdimpw), nn.SiLU())#, nn.Linear(mdim, mdimpw), nn.SiLU())
+        self.MzpwSeq = nn.Sequential(nn.Linear(mdim, 2*mdimpw), nn.SiLU(), nn.Linear(2*mdimpw, mdimpw), nn.SiLU())
         
         # charge/energy/mass embedding transformation
         self.atleast1 = use_charge or use_energy or use_mass
