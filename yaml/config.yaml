@@ -29,4 +29,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Extra linear-silu on MzpwSeq, pw_units=128"
+header: "delta tensor without shift, pw_units=256"
