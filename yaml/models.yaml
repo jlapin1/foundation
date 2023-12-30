@@ -7,6 +7,9 @@ encoder_dict:
   att_h: 8
   pairwise_bias: True
   pairwise_units: 128
+  pw_attention_ch: 32
+  pw_attention_h: 4
+  pw_attention_blocks: 2
   depth: 9
   ffn_multiplier: 4
   prenorm: True
