@@ -1,5 +1,6 @@
 
 import models.model_parts as mp
+import models.model_parts_pw as pw
 import torch as th
 from torch import nn
 I = nn.init
@@ -41,7 +42,10 @@ class Encoder(nn.Module):
                  att_d=64, # attention qkv dimension units
                  att_h=4,  # attention qkv heads
                  pairwise_bias=False, # use pairwise mz tensor to create SA-bias
-                 pairwise_units=None,
+                 pairwise_units=None, # units to project pw tensor to after sinusoidal expansion
+                 pw_attention_ch=32, # triangle attention channels
+                 pw_attention_h=4, # triangle attention heads
+                 pw_blocks=2, # number of pairstack blocks for pairwise features
                  ffn_multiplier=4, # multiply inp units for 1st FFN transform
                  depth=9, # number of transblocks
                  prenorm=True, # normalization before attention/ffn layers
@@ -78,11 +82,21 @@ class Encoder(nn.Module):
         self.MzSeq = nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
 
         # Pairwise mz
-        # - subidvide and expand based on mz_units, transform to pw_units
         if pairwise_bias:
+            # - subidvide and expand based on mz_units, transform to pw_units
             mdimpw = self.pw_units//4 if subdivide else self.pw_units
             self.MzpwSeq = nn.Sequential(nn.Linear(mdim, mdimpw), nn.SiLU())
-        
+            self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True) #REMOVE
+            self.pospw = pw.RelPos(100, 128) #REMOVE
+            # Evolve features
+            multdict = {'in_dim': self.pw_units, 'c': 128}
+            attdict = {'in_dim': self.pw_units, 'c': pw_attention_ch, 'h': pw_attention_h}
+            ptdict = {'in_dim': self.pw_units, 'n': 4}
+            self.PwSeq = nn.Sequential(*[
+                pw.PairStack(multdict, attdict, ptdict, drop_rate=0)
+                for m in range(pw_blocks)
+            ])
+
         # charge/energy/mass embedding transformation
         self.atleast1 = use_charge or use_energy or use_mass
         if self.atleast1:
@@ -138,7 +152,7 @@ class Encoder(nn.Module):
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
         pos = mp.FourierFeatures(
-            th.arange(self.sl, dtype=th.float32), self.run_units, 5.*self.sl
+            th.arange(1000, dtype=th.float32), self.run_units, 5.*1000
         )
         self.pos = nn.Parameter(pos, requires_grad=False)
 
@@ -242,8 +256,10 @@ class Encoder(nn.Module):
         mzab_dic = self.MzAb(x, inp_mask)
         mabemb = mzab_dic['1d']
         pwemb = mzab_dic['2d']
+        pwemb = pwemb + self.alphapw * self.pospw() # REMOVE
+        pwemb = self.PwSeq(pwemb)
         """mabemb = tf.concat([mabemb, TagArray], axis=-1) # add before self.first"""
-        out = self.first(mabemb) + self.alpha*self.pos
+        out = self.first(mabemb) + self.alpha*self.pos[:x.shape[1]]
         
         # Reycling the embedding with normalization, perhaps dense transform
         out += self.recyc(emb)
