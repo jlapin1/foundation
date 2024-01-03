@@ -27,7 +27,7 @@ class QKVAttention(nn.Module):
         elif typ == 'end':
             op1 = 'abcd,aecd->abce'
             op2 = 'abcd,adce->abce'
-            self.ad = lambda bias: bias[...,None,:].permute([0,4,1,2,3])
+            self.ad = lambda bias: bias[...,None,:].permute([0,4,3,2,1])
         
         self.es1 = lambda q, k: th.einsum(op1, q, k)
         self.es2 = lambda a, v: th.einsum(op2, a, v)

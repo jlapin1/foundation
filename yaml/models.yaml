@@ -9,7 +9,7 @@ encoder_dict:
   pairwise_units: 128
   pw_attention_ch: 32
   pw_attention_h: 4
-  pw_attention_blocks: 2
+  pw_blocks: 4
   depth: 9
   ffn_multiplier: 4
   prenorm: True

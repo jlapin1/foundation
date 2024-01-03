@@ -29,4 +29,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Added second PairStack, lowered batch_size to make it fit"
+header: "4 Pairstack layers"
