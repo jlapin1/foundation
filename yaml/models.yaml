@@ -5,18 +5,16 @@ encoder_dict:
   running_units: 512
   att_d: 64
   att_h: 8
-  pairwise_bias: True
-  pairwise_units: 128
-  pw_attention_ch: 32
-  pw_attention_h: 4
-  pw_blocks: 4
   depth: 9
   ffn_multiplier: 4
   prenorm: True
   use_charge: False
-  use_energy: False
   use_mass: False
-  recycling_its: 1
+  pairwise_bias: True
+  pairwise_units: 128
+  pw_attention_ch: 32
+  pw_attention_h: 4
+  pw_blocks: 1
 
 header_dict:
   in_units: 256

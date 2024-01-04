@@ -75,11 +75,16 @@ dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['run
 #                                  Loader                                     #
 ###############################################################################
 
-from loaders.loader import LoadObj
+from loaders.loader import DatasetObj, DataLoader
 from copy import deepcopy
 
-L = LoadObj(**dc['pretrain'])
-labels = deepcopy(L.labels)
+dataset = DatasetObj(**dc['pretrain'])
+L = DataLoader(
+    dataset=dataset,
+    num_workers=dc['num_workers'],
+    batch_size=config['batch_size'],
+    shuffle=True,
+)
 
 ###############################################################################
 #                                   Model                                     #
@@ -244,21 +249,20 @@ def train(epochs=1, runlen=50, svfreq=3600):
     
     for epoch in range(epochs):
         start_epoch = time()
-        perm = np.random.permutation(L.labels)
         for task_name, task in T.items(): task.reset_total_loss()
         
-        for step in range(config['steps_per_epoch']):
+        start_load = time()
+        for step, batch in enumerate(L):
+            running_time.append(0 if step==0 else time()-start_step)
             start_step = time()
+            load_time.append(start_step-start_load)
             
             # Train model for a step
-            random_labels = perm[step*bs : (step+1)*bs]
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
-            TT = time();batch = L.load_batch(
-                random_labels
-            );load_time.append(time()-TT) # load time sandwich
+            
             TT=time();loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
-            );graph_time.append(time()-TT) # graph time sandwich
+            );graph_time.append(time()-TT) # train_step time sandwich
             
             # Save running stats
             T[random_task].log_loss(loss.detach().cpu().numpy())
@@ -296,6 +300,11 @@ def train(epochs=1, runlen=50, svfreq=3600):
                     save_all_weights(svdir)
                 svtime = time()
 
+            if step == config['steps_per_epoch']-1:
+                break
+
+            start_load = time()
+
         # End of epoch
         tot_losses = tuple([
             task.calc_avg_total_loss()['main'] for task_name, task in T.items()
@@ -327,11 +336,11 @@ def train(epochs=1, runlen=50, svfreq=3600):
             svdir='save/%s/dswts/%s/'%(svdir, dstask)
         )
         sys.stdout.write("\r\033[KDownstream evlauation: %s\n"%(dstask))
-        line = DS.TrainEval()
-        Line = "Downstream evlauation: %s; "%(dstask) + line[-1]
+        line, highline = DS.TrainEval()
+        Line = "Downstream evlauation: %s; "%(dstask) + highline
         sys.stdout.write("\r\033[K%s\n"%Line)
         if msg:
-            U.message_board(Line+'\n', "save/%s/epochout.txt"%svdir)
+            U.message_board("\n".join(line)+'\n', "save/%s/epochout.txt"%svdir)
             allepochlines.append(Line+"\n")
     if msg:
         # Append results to the .all files

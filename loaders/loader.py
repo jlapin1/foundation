@@ -4,6 +4,9 @@ import os
 import pandas as pd
 import re
 import path
+import multiprocessing
+import queue
+from itertools import cycle
 
 def gather_file_md(filepath, typ=None):
     if typ==None:
@@ -154,7 +157,19 @@ def filter_mod(df, mod_list):
 
     return df
 
-class LoadObj:
+def worker_fn(dataset, index_queue, output_queue):
+    while True:
+        # Worker function, simply reads indices from index_queue, and adds the
+        # dataset element to the output_queue
+        try:
+            index = index_queue.get(timeout=0)
+        except queue.Empty:
+            continue
+        if index is None:
+            break
+        output_queue.put((index, dataset[index]))
+
+class DatasetObj:
     def __init__(self, 
                  paths=None, 
                  train_dirs=None,
@@ -279,34 +294,6 @@ class LoadObj:
             'Score': np.array(dic['Score'], dtype=float)
         })
         
-    """
-    def filter_psms(self):
-        for dir_path in self.paths.keys():
-            evid_path = dir_path+'/evidence/'
-            assert os.path.exists(evid_path)
-            for F in self.paths[dir_path]:
-                bname = F.split('/')[-1].split('.')[0]
-                Evid = evid_path + bname + '.evid'
-                assert os.path.exists(Evid)
-                dic = gather_evid_data(Evid)
-                sns = np.array(dic['MS/MS Scan Number'], dtype=int)
-                I = np.array(
-                    [self.md[bname].query('scan == %d'%sn).index for sn in sns]
-                ).squeeze()
-                assert len(I)>0
-                self.md[bname] = self.md[bname].iloc[I]
-                for key in [
-                    'Sequence',
-                    'Modifications',
-                    "Modified sequence",
-                    "Mass",
-                    'Mass Error [ppm]',
-                    "Score"
-                ]:
-                    dtype = str if key in ['Sequence', 'Modifications', 'Modified sequence'] else float
-                    self.md[bname][key] = np.array(dic[key], dtype=dtype)
-                print()
-    """
     def gather_labels(self):
         # index.values needs df.loc, enumerate needs df.iloc
         listoflists = [
@@ -325,7 +312,7 @@ class LoadObj:
         for key in self.fps.keys():
             self.fps[key].close()
     
-    def read_spec(self, filename, index, ann=False):
+    def read_spec_(self, filename, index, ann=False):
         fp = self.fps[filename] if self.preopen else open(self.fn2full[filename])
         md = self.md[filename] # calling the sample automatically casts dtypes
         fp.seek(md['pos'].iloc[index])
@@ -344,27 +331,51 @@ class LoadObj:
         }
         if not self.preopen: fp.close()
         return output
+    
+    def __len__(self):
+        return len(self.labels)
 
-    def load_batch(self, labels, top=None):
+    def __getitem__(self, index, top=None):
+        if top==None:
+            top=self.top_pks
+        mz = np.zeros((top))
+        ab = np.zeros((top))
+        
+        fnm, ind = self.labels[index].split('|')
+        spec_dic = self.read_spec_(fnm, int(ind))
+        marg = np.argsort(spec_dic['ab'])[-top:]
+        mzsort = np.argsort(spec_dic['mz'][marg])
+
+        mz[:len(marg)] = spec_dic['mz'][marg][mzsort]
+        ab_ = spec_dic['ab'][marg][mzsort]
+        ab[:len(marg)] = ab_ / ab_.max()
+        
+        return {
+            'mz': mz,
+            'ab': ab,
+            'charge': spec_dic['charge'],
+            'mass': spec_dic['mass'],
+            'length': len(mzsort)
+        }
+
+    def load_batch(self, indices, top=None):
         if top==None: top=self.top_pks
         
-        mz = np.zeros((len(labels), top))
-        ab = np.zeros((len(labels), top))
-        charge = np.zeros((len(labels),))
-        mass = np.zeros((len(labels),))
-        lengths = np.zeros((len(labels),))
-        for i, label in enumerate(labels):
-            fnm, ind = label.split('|')
-            spec_dic = self.read_spec(fnm, int(ind))
-                  
-            marg = np.argsort(spec_dic['ab'])[-top:]
-            mzsort = np.argsort(spec_dic['mz'][marg])
+        L = len(indices)
+        mz = np.zeros((L, top))
+        ab = np.zeros((L, top))
+        charge = np.zeros((L,))
+        mass = np.zeros((L,))
+        lengths = np.zeros((L,))
+        for i, j in enumerate(indices):
             
-            mz[i, :len(marg)] = spec_dic['mz'][marg][mzsort]
-            ab[i, :len(marg)] = spec_dic['ab'][marg][mzsort]
+            spec_dic = self.__getitem__(j)
+                  
+            mz[i] = spec_dic['mz']
+            ab[i] = spec_dic['ab']
             charge[i] = spec_dic['charge']
             mass[i] = spec_dic['mass']
-            lengths[i] = len(mzsort)
+            lengths[i] = spec_dic['length']
 
         output = {
                 'mz': th.tensor(mz, dtype=th.float32), 
@@ -376,258 +387,148 @@ class LoadObj:
 
         return output
 
-###############################################################################
-#                           Downstream loaders                                #
-# Must change the information that is read from each spectrum and the targets #
-# that are created in each batch.                                             #
-###############################################################################
+    def collate_fn(self, list_gis):
+        mz = th.stack([th.tensor(L['mz'], dtype=th.float32) for L in list_gis])
+        ab = th.stack([th.tensor(L['ab'], dtype=th.float32) for L in list_gis])
+        charge = th.tensor([L['charge'] for L in list_gis], dtype=th.int32)
+        mass = th.tensor([L['mass'] for L in list_gis], dtype=th.float32)
+        lengths = th.tensor([L['length'] for L in list_gis], dtype=th.int32)
 
-class LoadObjDS(LoadObj):
-    def __init__(self, config, save_md=True):
-        unixspec = list(
-            config['datasets']['unixspec'] 
-            if 'unixspec' in config['datasets'].keys() else 
-            '*'
-        )
-        paths = [m for n in [
-            path.glob.glob(config['datasets']['data_path'] + '/%s'%u)
-            for u in unixspec
-        ] for m in n]
-        
-        self.paths = [path for path in paths if 'mdsaved' not in path]
-        self.config = config
-        self.save_md = save_md
-        self.top_pks = config['datasets']['top_pks']
-        self.mdsaved_path = config['datasets']['mdsaved_path']
-        self.gather_md()
-
-        self.open_files()
-
-class LoadObjDNV(LoadObjDS):
-    def __init__(self, config, save_md=True):
-        super().__init__(config=config, save_md=save_md)
-        
-        # Create the aa-mod to integer dictionary
-        self.create_aamod_dict()
-        # Turn all sequences (with mods) into their corresponding integer seqs
-        self.create_intseq()
-        # Filter spectra based on sequence length, charge, and modifications
-        for key in self.md.keys():
-            if 'seq_len' in config.keys():
-                self.md[key] = filter_length(self.md[key], config['seq_len'])
-            if 'charge' in config.keys():
-                self.md[key] = filter_charge(self.md[key], config['charge'])
-            if 'mods' in config.keys():
-                self.md[key] = filter_mod(self.md[key], config['mods'])
-
-        self.gather_labels()
-
-    def split_labels_str(self, incl_str):
-        return [label for label in self.labels if incl_str in label]
-
-    def create_aamod_dict(self):
-        amod_dic = []
-        # iterate through all dataframes in loader
-        for mdf in self.md.values():
-            # iterate through all peptides in dataframe
-            seqmods = []
-            for i in range(len(mdf)):
-                # iterate through all positions in peptide
-                seqmod = []
-                for I, aa in enumerate(mdf.iloc[i]['seq']):
-                    # if there is a modification
-                    if I in mdf.iloc[i]['mod_pos']:
-                        ind = np.where(
-                            I==np.array(mdf.iloc[i]['mod_pos'])
-                        )[0][0]
-                        aa = mdf.iloc[i]['mod_aa'][ind]
-                        name = mdf.iloc[i]['mod_name'][ind]
-                        amod = "_".join([aa, name])
-                    else:
-                        amod = aa+'_0'
-                    seqmod.append(amod)
-                    if amod not in amod_dic:
-                        amod_dic.append(amod)
-                seqmods.append(seqmod)
-            mdf['modseq'] = seqmods
-        self.amod_dic = {j:i for i,j in enumerate(np.unique(amod_dic))}
-        self.amod_dic['X'] = len(self.amod_dic)
-        self.diclen = len(self.amod_dic)
-        print("Found %d aa/mod combinations in dataset"%(self.diclen-1))
-
-    def create_intseq(self):
-        assert hasattr(self, 'amod_dic')
-
-        # iterate through all dataframes in loader
-        for mdf in self.md.values():
-            # iterate through all peptides in dataframe
-            intseqs = []
-            for i in range(len(mdf)):
-                intseq = [self.amod_dic[a] for a in mdf.iloc[i]['modseq']]
-                intseqs.append(intseq)
-            mdf['intseq'] = intseqs
-
-    def read_spec(self, filename, index):
-        fp = self.fps[filename]
-        md = self.md[filename] # calling the sample automatically casts dtypes
-        fp.seek(md['pos'].iloc[index])
-        
-        Mz = np.zeros((md['nmpks'].iloc[index]))
-        Ab = np.zeros((md['nmpks'].iloc[index]))
-        Ann = np.empty((md['nmpks'].iloc[index],), dtype='str')
-        for m in range(md['nmpks'].iloc[index]):
-            mz, ab, ann = fp.readline().strip().split()
-            Mz[m] = float(mz)
-            Ab[m] = float(ab)
-            Ann[m] = ann[1:-1].split('/')[0]
-        
-        output = {
-            'mz': Mz.squeeze(),
-            'ab': Ab.squeeze(),
-            'ann': Ann.squeeze(),
-            'charge': md['charge'].iloc[index],
-            'mass': md['mw'].iloc[index],
-            
-            'intseq': md['intseq'].iloc[index],
-            'mod_aa': md['mod_aa'].iloc[index],    
+        return {
+            'mz': mz,
+            'ab': ab,
+            'charge': charge,
+            'mass': mass,
+            'length': lengths,
         }
 
-        return output
+class DataLoader:
+    def __init__(
+        self,
+        dataset,
+        batch_size=100,
+        num_workers=1,
+        prefetch_batches=2,
+        shuffle=False,
+    ):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.collate_fn = dataset.collate_fn
+        self.num_workers = num_workers
+        self.prefetch_batches = prefetch_batches
+        self.shuffle = shuffle
 
-    def load_batch(self, labels, top=None):
-        if top==None: top=self.top_pks
-        maxsl = self.config['seq_len'][1]
+        self.output_queue = multiprocessing.Queue()
+        self.index_queues = []
+        self.workers = []
+        self.worker_cycle = cycle(range(num_workers))
+        self.cache = {}
+        self.index = 0
+        self.prefetch_index = 0
+        self.empty_oq = 0
         
-        mz = np.zeros((len(labels), top))
-        ab = np.zeros((len(labels), top))
-        #ann = np.zeros((len(labels), top))
-        charge = np.zeros((len(labels),))
-        mass = np.zeros((len(labels),))
-        lengths = np.zeros((len(labels),))
-        
-        seqints = np.zeros((len(labels), maxsl))
 
-        #int_array = np.zeros((len(labels)), 
-        for i, label in enumerate(labels):
-            fnm, ind = label.split('|')
-            spec_dic = self.read_spec(fnm, int(ind))
-            
-            marg = np.argsort(spec_dic['ab'])[-top:]
-            mzsort = np.argsort(spec_dic['mz'][marg])
-            
-            mz[i, :len(marg)] = spec_dic['mz'][marg][mzsort]
-            ab[i, :len(marg)] = spec_dic['ab'][marg][mzsort]
-            #ann[i, :len(marg)] = spec_dic['ann'][marg][mzsort]
-            charge[i] = spec_dic['charge']
-            mass[i] = spec_dic['mass']
-            lengths[i] = len(mzsort)
-
-            seqints[i] = np.array(
-                spec_dic['intseq'] + 
-                (maxsl-len(spec_dic['intseq']))*[self.diclen-1]
+        for _ in range(num_workers):
+            index_queue = multiprocessing.Queue()
+            worker = multiprocessing.Process(
+                target=worker_fn, 
+                args=(self.dataset, index_queue, self.output_queue)
             )
-        
-        output = {
-            'mz': th.tensor(mz, dtype=th.float32), 
-            'ab': th.tensor(ab/ab.max(-1, keepdims=True), dtype=th.float32),
-            'charge': th.tensor(charge, dtype=th.int32),
-            'mass': th.tensor(mass, dtype=th.float32),
-            'length': th.tensor(lengths, dtype=th.int32),
+            worker.daemon = True
+            worker.start()
+            self.workers.append(worker)
+            self.index_queues.append(index_queue)
 
-            'target': th.tensor(seqints, dtype=th.int32)
-        }
+        self.perm = (
+            np.random.permutation(len(dataset)) 
+            if shuffle else 
+            np.arange(len(dataset))
+        )
 
-        return output
+        self.prefetch()
+    
+    def prefetch(self):
+        """
+        Add dataset indices to the respective worker index_queues,
+        -->>> CONSEQUENTLY, ADD DATA TO OUTPUT QUEUE
+        WHY?
+        - The worker processes are already started and running in the background.
+          Once a index number is put into the index_queue(s), the index will be
+          found in worker_init_fn and data will be put into output_queue
+        """
+        while(
+            self.prefetch_index < len(self.dataset) and
+            self.prefetch_index < 
+            self.index + self.prefetch_batches*self.num_workers*self.batch_size
+        ):
+            # if the prefetch_index hasn't reached the end of the dataset
+            # and it is not 2 batches ahead, add indices to the index queues
+            self.index_queues[next(self.worker_cycle)].put(self.perm[self.prefetch_index])
+            self.prefetch_index += 1
 
-# Spectrum classifier
-class LoadObjSC(LoadObjDS):
-    def __init__(self, config, save_md=True):
-        super().__init__(config=config, save_md=save_md)
-        self.config = config
-        
-        # Add class labels to spectra in self.md
-        self.add_labels_to_md()
-        
-        self.gather_labels()
+    def __iter__(self):
+        """
+        This function is entered once per epoch
+        """
+        self.index = 0
+        self.cache = {}
+        self.prefetch_index = 0
+        if self.shuffle:
+            self.perm = np.random.permutation(len(self.dataset))
+        self.prefetch()
+        return self
+    
+    def __next__(self):
+        if self.index >= len(self.dataset):
+            raise StopIteration
+        batch_size = min(len(self.dataset) - self.index, self.batch_size)
+        return self.collate_fn([self.get() for _ in range(batch_size)])
 
-    def create_label_dict(self):
-        self.labeldic = {
-            n:m for m,n in enumerate(self.config['datasets']['labels'])
-        }
-
-    def add_labels_to_md(self):
-        self.create_label_dict()
-        
-        for filename in self.md.keys():
-            for label in self.labeldic.keys():
-                if label in filename:
-                    self.md[filename]['class'] = (
-                        self.labeldic[label] * 
-                        np.ones((len(self.md[filename]),), dtype='int')
-                    )
+    def get(self):
+        """
+        This subroutine is getting called by multiple processes, independently.
+        We are looking for a specific, global index (self.index), which when
+        encountered will return that data structure (item). 
+        - Every structure pulled from the output_queue that does not have that 
+        index is stored for later calls of get(), at which time it will be pu-
+        lled from self.cache.
+        """
+        I = self.perm[self.index]
+        self.prefetch()
+        if I in self.cache:
+            item = self.cache[I]
+            del self.cache[I]
+        else:
+            while True:
+                try:
+                    (index, data) = self.output_queue.get(timeout=0)
+                except queue.Empty: # output queue empty, keep trying
+                    self.empty_oq += 1
+                    continue
+                if index == I: # found our item, ready to return
+                    item = data
                     break
+                else: # item isn't the one we want, cache for later
+                    self.cache[index] = data
 
-    def read_spec(self, filename, index, ann=False):
-        fp = self.fps[filename]
-        md = self.md[filename] # calling the sample automatically casts dtypes
-        fp.seek(md['pos'].iloc[index])
+        self.index += 1
+        return item
 
-        pks = np.array([
-                [float(m) for m in fp.readline().strip().split()] 
-                for _ in range(md['nmpks'].iloc[index])
-        ])
-        mz, ab = np.split(pks, 2, -1)
-        output = {
-                'mz': mz.squeeze(),
-                'ab': ab.squeeze(),
-                'charge': md['charge'].iloc[index],
-                'mass': md['mass'].iloc[index],
-                
-                'class': md['class'].iloc[index]
-        }
+    def __del__(self):
+        try:
+            for i, w in enumerate(self.workers):
+                self.index_queues[i].put(None)
+                w.join(timeout=5.0)
+            for q in self.index_queues:
+                q.cancel_join_thread()
+                q.close()
+            self.output_queue.cancel_join_thread()
+            self.output_queue.close()
+        finally:
+            for w in self.workers:
+                if w.is_alive():
+                    w.terminate()
 
-        return output
-
-    def load_batch(self, labels, top=None):
-        if top==None: top=self.top_pks
-        
-        mz = np.zeros((len(labels), top))
-        ab = np.zeros((len(labels), top))
-        #ann = np.zeros((len(labels), top))
-        charge = np.zeros((len(labels),))
-        mass = np.zeros((len(labels),))
-        lengths = np.zeros((len(labels),))
-        
-        classes = np.zeros((len(labels),))
-
-        #int_array = np.zeros((len(labels)), 
-        for i, label in enumerate(labels):
-            fnm, ind = label.split('|')
-            spec_dic = self.read_spec(fnm, int(ind))
-            
-            marg = np.argsort(spec_dic['ab'])[-top:]
-            mzsort = np.argsort(spec_dic['mz'][marg])
-            
-            mz[i, :len(marg)] = spec_dic['mz'][marg][mzsort]
-            ab[i, :len(marg)] = spec_dic['ab'][marg][mzsort]
-            #ann[i, :len(marg)] = spec_dic['ann'][marg][mzsort]
-            charge[i] = spec_dic['charge']
-            mass[i] = spec_dic['mass']
-            lengths[i] = len(mzsort)
-
-            classes[i] = spec_dic['class']
-
-        output = {
-            'mz': th.tensor(mz, dtype=th.float32), 
-            'ab': th.tensor(ab/ab.max(-1, keepdims=True), dtype=th.float32),
-            'charge': th.tensor(charge, dtype=th.int32),
-            'mass': th.tensor(mass, dtype=th.float32),
-            'length': th.tensor(lengths, dtype=th.int32),
-
-            'target': th.tensor(classes, dtype=th.int32)
-        }
-
-        return output
 
 """
 import yaml

@@ -256,9 +256,10 @@ class Encoder(nn.Module):
         mzab_dic = self.MzAb(x, inp_mask)
         mabemb = mzab_dic['1d']
         pwemb = mzab_dic['2d']
-        pwemb = pwemb + self.alphapw * self.pospw() # REMOVE
-        pwemb = self.PwSeq(pwemb)
-        """mabemb = tf.concat([mabemb, TagArray], axis=-1) # add before self.first"""
+        if self.pairwise_bias:
+            pwemb = pwemb + self.alphapw * self.pospw() # REMOVE
+            pwemb = self.PwSeq(pwemb)
+        
         out = self.first(mabemb) + self.alpha*self.pos[:x.shape[1]]
         
         # Reycling the embedding with normalization, perhaps dense transform

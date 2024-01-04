@@ -5,7 +5,6 @@ TODO
 import torch as th
 import yaml
 import path
-from loaders.loader import LoadObjDNV, LoadObjSC
 from loaders.loader_parquet import LoaderDS
 import numpy as np
 from models.encoder import Encoder
@@ -263,12 +262,15 @@ class BaseDenovo(DownstreamObj):
     def TrainEval(self, eval_dset='val'):
         start_time = time()
         lines = []
+        highscore = 0
         for i in range(self.config['epochs']):
             self.train_epoch(SeqInts=True) # Notice: SeqInts is true
             out = self.evaluation(dset=eval_dset)
             line = "ValEpoch %d: Cross-entropy=%.6f, Accuracy=%.6f, Recall=%.6f, Precision=%.6f"%(
                 (i,) + tuple(out.values())
             )
+            if out['recall']>highscore:
+                highline = line
             line += " (%.1f s)"%(time()-start_time)
             lines.append(line)
             if self.config['save_weights']:
@@ -277,7 +279,7 @@ class BaseDenovo(DownstreamObj):
                     self.save_encoder(self.svdir+'encoder.wts')
             print(line)
         
-        return lines
+        return lines, highline
 
 class DenovoArDSObj(BaseDenovo):
     def __init__(self, config, base_model=None, svdir='./dswts/'):
@@ -402,135 +404,6 @@ class DenovoBlDSObj(BaseDenovo):
 
         return enc_input, target
 
-"""   
-class AttributeDSObj(DownstreamObj):
-    def __init__(self, config, base_model=None, svdir=None):
-        super().__init__(config=config, base_model=base_model)
-
-    def evaluation(self, dset='val'):
-        graph = (
-            self.call
-            if self.config['debug'] else
-            tf.function(self.call)
-        )
-        totsz = self.dl.dfs[dset].shape[0]
-        steps = totsz // self.config['batch_size']
-        steps += 0 if (totsz % self.config['batch_size'])==0 else 1
-
-        out = {'ce': 0, 'accuracy': 0,}
-        tots = {
-            'ce': {'sum': 0, 'total': 0},
-            'accuracy': {'sum': 0,'total': 0},
-        }
-        for step in tqdm(range(steps)):
-            first = step*self.config['batch_size']
-            last = np.minimum((step+1)*self.config['batch_size'], totsz)
-            batch_inds = np.arange(first, last, 1)
-            batch = self.dl.load_batch(batch_inds, dset=dset)
-            
-            enc_input, target = self.inptarg(batch, training=False)
-            pred = graph(enc_input, training=False)
-            
-            out['ce'] += tf.reduce_sum(self.LossFunction(target, pred))
-            pred_ = tf.cast(tf.argmax(pred,  -1), tf.int32)
-            out['accuracy'] += tf.reduce_sum(
-                tf.cast(tf.equal(target, pred_), tf.int32)
-            )
-        
-        out['ce'] = out['ce'] / totsz
-        out['accuracy'] /= totsz
-
-        return out
-
-    def TrainEval(self, eval_dset='val'):
-        start_time = time()
-        lines = []
-        for i in range(self.config['epochs']):
-            self.train_epoch()
-            out = self.evaluation(dset=eval_dset)
-            line = "ValEpoch %d: Cross-entropy=%.6f, Accuracy=%.6f"%(
-                (i,) + tuple(out.values())
-            )
-            line += " (%.1f s)"%(time()-start_time)
-            lines.append(line)
-            print(line)
-        
-        #total_time = time() - start_time
-        #lines[-1] += " (%.1f s)"%total_time
-        #lines.append(line)
-
-        return lines
-
-class ChargeDSObj(AttributeDSObj):
-    def __init__(self, config, base_model=None, svdir=None):
-        super().__init__(config=config, base_model=base_model)
-
-        # fork in the code for task
-        task = 'charge'
-        head_dict = self.config[task]['head_dict']  
-        # Dataloader
-        self.dl = LoaderDS(self.config['loader'])
-        
-        # Head model
-        # Place values into head dictionary that can't be determined beforehand
-        self.config['sl'] = self.config['loader']['pep_length'][1] + 1
-        self.predcats = np.concatenate([
-            np.unique(df.precursor_charge) for df in self.dl.dfs.values()
-        ])
-        self.predcats = np.max(self.predcats)
-        head_dict['num_classes'] = self.predcats
-        self.head = ClassifierHead(**head_dict)
-        
-        self.initialize_weights()
-    
-    def inptarg(self, batch, training=True):
-        enc_input = self.encinp(batch, training=training)
-        target = batch['charge'] - 1
-
-        return enc_input, target
-
-class PeplenDSObj(AttributeDSObj):
-    def __init__(self, config, base_model=None, svdir=None):
-        super().__init__(config=config, base_model=base_model)
-        
-        # fork in the code for the task
-        task = 'peplen'
-        head_dict = self.config[task]['head_dict']
-        # Dataloader
-        self.dl = LoaderDS(self.config)
-
-        # Head model
-        self.config['sl'] = self.config['loader']['pep_length'][1] + 1
-        self.predcats = np.concatenate([
-            np.unique(np.vectorize(len)(df.sequence)) 
-            for df in self.dl.dfs.values()
-        ])
-        self.predcats = np.max(self.predcats)
-        head_dict['num_classes'] = self.predcats
-        self.head = ClassifierHead(**head_dict)
-        
-        self.initialize_weights()
-
-    def inptarg(self, batch, training=True):
-        enc_input = self.encinp(batch, training=training)
-        target = batch['peplen'] - 1
-
-        return enc_input, target
-
-def build_downstream_object(task, yaml='./yaml/downstream.yaml', base_model=None):
-    # Read downstream yaml
-    with open(yaml) as stream:
-        config = yaml.safe_load(stream)
-
-    # Downstream object
-    if task == 'denovo':
-        DS = DenovoDSObj(config, base_model)
-    elif task == 'specclass':
-        DS = SpecclassObj(config, base_model)
-
-    return DS
-"""
-#"""
 # Read downstream yaml
 with open("./yaml/downstream.yaml") as stream:
     config = yaml.safe_load(stream)
