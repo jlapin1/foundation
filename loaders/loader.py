@@ -408,7 +408,7 @@ class DataLoader:
         dataset,
         batch_size=100,
         num_workers=1,
-        prefetch_batches=2,
+        prefetch_batches=0.5,
         shuffle=False,
     ):
         self.dataset = dataset

@@ -14,7 +14,7 @@ encoder_dict:
   pairwise_units: 128
   pw_attention_ch: 32
   pw_attention_h: 4
-  pw_blocks: 1
+  pw_blocks: 2
 
 header_dict:
   in_units: 256

@@ -271,6 +271,7 @@ class BaseDenovo(DownstreamObj):
             )
             if out['recall']>highscore:
                 highline = line
+                highscore = out['recall']
             line += " (%.1f s)"%(time()-start_time)
             lines.append(line)
             if self.config['save_weights']:
