@@ -237,14 +237,16 @@ class BaseDenovo(DownstreamObj):
                         batch, full_seqint=True,
                     )
                     embedding = self.encoder(**enc_input)
-                    prediction = self.head.predict_sequence(embedding, batch)
+                    prediction, probs = self.head.predict_sequence(embedding, batch)
+                    pred = probs.transpose(-1,-2)
                 else:
                     enc_input, target = self.inptarg(batch)
                     pred = func(enc_input) # logits
                     prediction = pred.argmax(-1).type(th.int32) # bs, sl
             
             out['ce'] += (
-                0 if self.ar else 
+                F.cross_entropy(pred, target, reduction='none').sum()
+                if self.ar else 
                 self.LossFunction(target, pred).sum()
             )
             
@@ -410,13 +412,6 @@ with open("./yaml/downstream.yaml") as stream:
     config = yaml.safe_load(stream)
 
 # Downstream object
-#print("Denovo sequencing")
-#D = DenovoArDSObj(config)
-#print("\n".join(D.TrainEval()))
-#print("Charge evaluation")
-#D = ChargeDSObj(config)
-#print("\n".join(D.TrainEval()))
-#print("Peptide length evaluation")
-#D = PeplenDSObj(config)
-#print("\n".join(D.TrainEval()))
-#"""
+print("Denovo sequencing")
+D = DenovoArDSObj(config)
+print("\n".join(D.TrainEval()))
