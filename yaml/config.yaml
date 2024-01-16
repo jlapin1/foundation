@@ -19,14 +19,12 @@ tasks:
   #- doctored_mz
   #- doctored_mz2
 downstream:
-  #- charge
-    #- peplen
   - denovo_ar
 load: False
 loadpath: save/2023-09-27_06-24-36.363775/weights/
 log: True
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Gathering data for ASMS; PW bias 2 Pairstack layer"
+header: "FIX: pw_mzunits=512 -> projected back to pairwise_units"

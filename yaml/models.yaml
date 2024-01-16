@@ -10,11 +10,11 @@ encoder_dict:
   prenorm: True
   use_charge: False
   use_mass: False
-  pairwise_bias: False
-  pairwise_units: 128
+  pairwise_bias: True
+  pairwise_units: 64
   pw_attention_ch: 32
   pw_attention_h: 4
-  pw_blocks: 2
+  pw_blocks: 1
 
 header_dict:
   in_units: 256

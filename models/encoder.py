@@ -29,6 +29,7 @@ def init_encoder_weights(module):
 
 class Encoder(nn.Module):
     def __init__(self,
+                 # 1D options
                  in_units=2, # input units from mz/ab tensor
                  running_units=512, # num units running throughout model
                  sequence_length=100, # maximum number of peaks
@@ -41,16 +42,19 @@ class Encoder(nn.Module):
                  ce_units=256, # units for transformation of mzab fourier vectors
                  att_d=64, # attention qkv dimension units
                  att_h=4,  # attention qkv heads
+                 ffn_multiplier=4, # multiply inp units for 1st FFN transform
+                 prenorm=True, # normalization before attention/ffn layers
+                 norm_type='layer', # normalization type
+                 preembed=True, # embed/add charge/energy/mass before FFN
+                 depth=9, # number of transblocks
+                 # Pairwise options
                  pairwise_bias=False, # use pairwise mz tensor to create SA-bias
-                 pairwise_units=None, # units to project pw tensor to after sinusoidal expansion
+                 pw_mz_units=None, # sinusoidal units to expand pw tensor into
+                 pw_run_units=None, # units to project pw tensor to after sinusoidal expansion
                  pw_attention_ch=32, # triangle attention channels
                  pw_attention_h=4, # triangle attention heads
                  pw_blocks=2, # number of pairstack blocks for pairwise features
-                 ffn_multiplier=4, # multiply inp units for 1st FFN transform
-                 depth=9, # number of transblocks
-                 prenorm=True, # normalization before attention/ffn layers
-                 norm_type='layer', # normalization type
-                 preembed=True, # embed/add charge/energy/mass before FFN 
+                 # Miscellaneous
                  recycling_its=1, # recycling iterations
                  device=th.device('cpu')
                  ):
@@ -67,7 +71,8 @@ class Encoder(nn.Module):
         self.d = att_d
         self.h = att_h
         self.pairwise_bias = pairwise_bias
-        self.pw_units = mz_units if pairwise_units==None else pairwise_units
+        self.pw_mzunits = mz_units if pw_mz_units==None else pw_mz_units
+        self.pw_runits = running_units if pw_run_units==None else pw_run_units
         self.depth = depth
         self.prenorm = prenorm
         self.norm_type = norm_type
@@ -84,14 +89,15 @@ class Encoder(nn.Module):
         # Pairwise mz
         if pairwise_bias:
             # - subidvide and expand based on mz_units, transform to pw_units
-            mdimpw = self.pw_units//4 if subdivide else self.pw_units
-            self.MzpwSeq = nn.Sequential(nn.Linear(mdim, mdimpw), nn.SiLU())
-            self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True) #REMOVE
-            self.pospw = pw.RelPos(100, 128) #REMOVE
+            mdimpw = self.pw_mzunits//4 if subdivide else self.pw_mzunits
+            self.MzpwSeq = nn.Sequential(nn.Linear(mdimpw, mdimpw), nn.SiLU())
+            self.pwfirst = nn.Linear(self.pw_mzunits, self.pw_runits)
+            self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True)
+            self.pospw = pw.RelPos(sequence_length, self.pw_runits)
             # Evolve features
-            multdict = {'in_dim': self.pw_units, 'c': 128}
-            attdict = {'in_dim': self.pw_units, 'c': pw_attention_ch, 'h': pw_attention_h}
-            ptdict = {'in_dim': self.pw_units, 'n': 4}
+            multdict = {'in_dim': self.pw_runits, 'c': 128}
+            attdict = {'in_dim': self.pw_runits, 'c': pw_attention_ch, 'h': pw_attention_h}
+            ptdict = {'in_dim': self.pw_runits, 'n': 4}
             self.PwSeq = nn.Sequential(*[
                 pw.PairStack(multdict, attdict, ptdict, drop_rate=0)
                 for m in range(pw_blocks)
@@ -114,7 +120,7 @@ class Encoder(nn.Module):
             'd': att_d, 
             'h': att_h,
             'pairwise_bias': pairwise_bias,
-            'bias_in_units': self.pw_units
+            'bias_in_units': self.pw_runits
         }
         ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
         is_embed = True if self.atleast1 else False
@@ -230,12 +236,6 @@ class Encoder(nn.Module):
         else:
             mask = None
         
-        """# Create tag for prediction of missing/altered inputs
-        if tag_array==None:
-            # Nothing altered (mzab) by default
-            tag_array = tf.tile(self.tag, [tf.shape(x)[0], 1])
-        TagArray = self.PredictTag(tag_array) # bs, seq_len, 2 (float32)"""
-
         # Spectrum level embeddings
         if self.atleast1:
             ce_emb = []
@@ -257,7 +257,7 @@ class Encoder(nn.Module):
         mabemb = mzab_dic['1d']
         pwemb = mzab_dic['2d']
         if self.pairwise_bias:
-            pwemb = pwemb + self.alphapw * self.pospw() # REMOVE
+            pwemb = self.pwfirst(pwemb) + self.alphapw * self.pospw() # REMOVE
             pwemb = self.PwSeq(pwemb)
         
         out = self.first(mabemb) + self.alpha*self.pos[:x.shape[1]]
