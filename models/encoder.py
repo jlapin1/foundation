@@ -84,12 +84,14 @@ class Encoder(nn.Module):
         self.alpha = nn.Parameter(th.tensor(0.1), requires_grad=True)
         
         mdim = mz_units//4 if subdivide else mz_units
+        self.mdim = mdim
         self.MzSeq = nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
 
         # Pairwise mz
         if pairwise_bias:
             # - subidvide and expand based on mz_units, transform to pw_units
             mdimpw = self.pw_mzunits//4 if subdivide else self.pw_mzunits
+            self.mdimpw = mdimpw
             self.MzpwSeq = nn.Sequential(nn.Linear(mdimpw, mdimpw), nn.SiLU())
             self.pwfirst = nn.Linear(self.pw_mzunits, self.pw_runits)
             self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True)
@@ -173,8 +175,7 @@ class Encoder(nn.Module):
         Mz = Mz.squeeze()
         if self.subdivide:
             mz = mp.subdivide_float(Mz)
-            minidim = self.mz_units//4
-            mz_emb = mp.FourierFeatures(mz, minidim, 1000.)#.to(x.device)
+            mz_emb = mp.FourierFeatures(mz, self.mdim, 1000.)#.to(x.device)
         else:
             mz_emb = mp.FourierFeatures(mz, self.mz_units, 10000.)#.to(x.device)
         mz_emb = self.MzSeq(mz_emb) # multiply sequential to mz fourier feature
@@ -195,7 +196,7 @@ class Encoder(nn.Module):
             # expand based on mz_units
             if self.subdivide:
                 mzpw = mp.subdivide_float(dtsr)
-                mzpw_emb = mp.FourierFeatures(mzpw, minidim, 10000.)#.to(x.device)
+                mzpw_emb = mp.FourierFeatures(mzpw, self.mdimpw, 10000.)#.to(x.device)
             else:
                 mzpw_emb = mp.FourierFeatures(dtsr, self.mz_units, 10000.)#.to(x.device)
             # transform based on pw_units

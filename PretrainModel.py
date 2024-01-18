@@ -91,12 +91,16 @@ L = DataLoader(
 ###############################################################################
 
 from models.encoder import Encoder
+from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import Header
 from utils import *
 
 # Encoder model
-encoder_dic = mconf['encoder_dict']
-encoder = Encoder(**encoder_dic)
+if mconf['encoder_name'] == 'depthcharge':
+    encoder = dc_encoder()
+else:
+    encoder_dic = mconf['encoder_dict']
+    encoder = Encoder(**encoder_dic)
 encoder.to(device) # model shouldn't need to come off of GPU entire run
 print("Total encoder parameters: %d"%encoder.total_params())
 

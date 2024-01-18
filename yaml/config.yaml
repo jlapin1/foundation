@@ -22,9 +22,9 @@ downstream:
   - denovo_ar
 load: False
 loadpath: save/2023-09-27_06-24-36.363775/weights/
-log: True
+log: False
 svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "FIX: pw_mzunits=512 -> projected back to pairwise_units"
+header: "Depthcharge encoder"
