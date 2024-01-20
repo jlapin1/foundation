@@ -15,13 +15,16 @@ class SpectrumTransformerEncoder(torch.nn.Module):
         n_layers: int = 1,
         dropout: float = 0,
         peak_encoder: PeakEncoder | Callable | bool = True,
+        sequence_length: int = 100
     ) -> None:
         super().__init__()
         self._d_model = d_model
+        self.run_units = d_model
         self._nhead = nhead
         self._dim_feedforward = dim_feedforward
         self._n_layers = n_layers
         self._dropout = dropout
+        self.sl = sequence_length
 
         if callable(peak_encoder):
             self.peak_encoder = peak_encoder
@@ -124,14 +127,14 @@ class SpectrumTransformerEncoder(torch.nn.Module):
 #####################
 ### Encoder model ###
 #####################
-def dc_encoder():
+def dc_encoder(sequence_length):
     enc_dict = {
         'd_model': 512,
         'nhead': 8,
         'dim_feedforward': 2048,
         'n_layers': 9,
         'dropout': 0.0,
-        #'dim_intensity': None,
+        'sequence_length': sequence_length,
     }
     encoder = SpectrumTransformerEncoder(**enc_dict)
 

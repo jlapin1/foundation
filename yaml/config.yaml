@@ -1,6 +1,6 @@
 seed:
 max_peaks: 100
-epochs: 10
+epochs: 20
 steps_per_epoch: 10000
 batch_size: 100
 lr: 4e-5
@@ -19,12 +19,12 @@ tasks:
   #- doctored_mz
   #- doctored_mz2
 downstream:
-  - denovo_ar
+  #- denovo_ar
 load: False
 loadpath: save/2023-09-27_06-24-36.363775/weights/
-log: False
+log: True
 svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Depthcharge encoder"
+header: "Long pretraining"

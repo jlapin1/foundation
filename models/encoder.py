@@ -14,7 +14,7 @@ def init_encoder_weights(module):
         module.first.weight = I.xavier_uniform_(module.first.weight)
         if module.first.bias is not None: 
             module.first.bias = I.zeros_(module.first.bias)
-    elif isinstance(module, mp.SelfAttention):
+    if isinstance(module, mp.SelfAttention):
         maxmin = (6 / (module.qkv.in_features + module.d))**0.5
         module.qkv.weight = I.uniform_(module.qkv.weight, -maxmin, maxmin)
         module.Wo.weight = I.normal_(module.Wo.weight, 0.0, 0.3*(module.h*module.d)**-0.5)

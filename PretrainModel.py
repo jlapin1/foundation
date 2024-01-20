@@ -97,7 +97,7 @@ from utils import *
 
 # Encoder model
 if mconf['encoder_name'] == 'depthcharge':
-    encoder = dc_encoder()
+    encoder = dc_encoder(sequence_length=config['max_peaks'])
 else:
     encoder_dic = mconf['encoder_dict']
     encoder = Encoder(**encoder_dic)
