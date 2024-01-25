@@ -6,17 +6,17 @@ from torch import nn
 I = nn.init
 
 def init_encoder_weights(module):
-    if hasattr(module, 'MzSeq'):
-        module.MzSeq[0].weight = I.xavier_uniform_(module.MzSeq[0].weight)
-        if module.MzSeq[0].bias is not None:
-            module.MzSeq[0].bias = I.zeros_(module.MzSeq[0].bias)
+    #if hasattr(module, 'MzSeq'):
+    #    module.MzSeq[0].weight = I.xavier_uniform_(module.MzSeq[0].weight)
+    #    if module.MzSeq[0].bias is not None:
+    #        module.MzSeq[0].bias = I.zeros_(module.MzSeq[0].bias)
     if hasattr(module, 'first'):
         module.first.weight = I.xavier_uniform_(module.first.weight)
         if module.first.bias is not None: 
             module.first.bias = I.zeros_(module.first.bias)
     if isinstance(module, mp.SelfAttention):
-        maxmin = (6 / (module.qkv.in_features + module.d))**0.5
-        module.qkv.weight = I.uniform_(module.qkv.weight, -maxmin, maxmin)
+        #maxmin = (6 / (module.qkv.in_features + module.d))**0.5
+        module.qkv.weight = I.xavier_uniform_(module.qkv.weight)#, -maxmin, maxmin)
         module.Wo.weight = I.normal_(module.Wo.weight, 0.0, 0.3*(module.h*module.d)**-0.5)
     elif isinstance(module, mp.FFN):
         module.W1.weight = I.xavier_uniform_(module.W1.weight)
@@ -85,7 +85,7 @@ class Encoder(nn.Module):
         
         mdim = mz_units//4 if subdivide else mz_units
         self.mdim = mdim
-        self.MzSeq = nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
+        self.MzSeq = nn.Identity()#nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
 
         # Pairwise mz
         if pairwise_bias:
@@ -122,7 +122,8 @@ class Encoder(nn.Module):
             'd': att_d, 
             'h': att_h,
             'pairwise_bias': pairwise_bias,
-            'bias_in_units': self.pw_runits
+            'bias_in_units': self.pw_runits,
+            'modulator': False
         }
         ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
         is_embed = True if self.atleast1 else False
@@ -177,7 +178,7 @@ class Encoder(nn.Module):
             mz = mp.subdivide_float(Mz)
             mz_emb = mp.FourierFeatures(mz, self.mdim, 1000.)#.to(x.device)
         else:
-            mz_emb = mp.FourierFeatures(mz, self.mz_units, 10000.)#.to(x.device)
+            mz_emb = mp.FourierFeatures(Mz, self.mz_units, 10000.)#.to(x.device)
         mz_emb = self.MzSeq(mz_emb) # multiply sequential to mz fourier feature
         mz_emb = mz_emb.reshape(x.shape[0], x.shape[1], -1)
         # ASSUME ab comes in 0-1, multiply by 100 (0-100) before expansion
@@ -209,11 +210,14 @@ class Encoder(nn.Module):
 
         return {'1d': out, '2d': mzpw_emb}
     
-    def Main(self, inp, embed=None, mask=None, pwtsr=None):
+    def Main(self, inp, embed=None, mask=None, pwtsr=None, return_full=False):
         out = inp
+        other = []
         for layer in self.main:
-            out = layer(out, embed_feats=embed, spec_mask=mask, pwtsr=pwtsr)
-        return self.main_proj(out)
+            out = layer(out, embed_feats=embed, spec_mask=mask, pwtsr=pwtsr, return_full=return_full)
+            other.append(out['other'])
+            out = out['out']
+        return {'out': self.main_proj(out), 'other': other}
     
     def UpdateEmbed(self, 
                     x, 
@@ -224,7 +228,8 @@ class Encoder(nn.Module):
                     emb=None,
                     inp_mask=None,
                     tag_array=None,
-                    return_mask=False
+                    return_mask=False,
+                    return_full=False,
                     ):
         # Create mask
         if length!=None:
@@ -266,9 +271,10 @@ class Encoder(nn.Module):
         # Reycling the embedding with normalization, perhaps dense transform
         out += self.recyc(emb)
         
-        emb = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb) # AlphaFold has +=
+        out = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
+        emb = out['out']
         
-        output = (emb, mask) if return_mask else emb
+        output = {'emb': emb, 'mask': mask, 'other': out['other']}
         
         return output
     
@@ -282,9 +288,9 @@ class Encoder(nn.Module):
              inp_mask=None,
              tag_array=None,
              its=None, 
-             return_mask=False
+             return_mask=False,
+             return_full=False
     ):
-        Output = {'final': None, 'emb': None, 'mask': None}
         its = self.its  if its==None else its
         
         # Recycled embedding
@@ -296,14 +302,18 @@ class Encoder(nn.Module):
         
         for _ in range(its):
             output = self.UpdateEmbed(
-                x, charge=charge, energy=energy, mass=mass, 
-                length=length, emb=emb, inp_mask=inp_mask, 
-                tag_array=tag_array, return_mask=return_mask
+                x, 
+                charge=charge, 
+                energy=energy, 
+                mass=mass, 
+                length=length, 
+                emb=emb, 
+                inp_mask=inp_mask, 
+                tag_array=tag_array, 
+                return_mask=return_mask,
+                return_full=return_full
             )
-            emb, mask = output if return_mask else (output,None)
-        Output['emb'] = emb
-        if return_mask: Output['mask'] = mask
         
-        return Output
+        return output
 
             

@@ -1,7 +1,8 @@
 seed:
 max_peaks: 100
-epochs: 20
-steps_per_epoch: 10000
+epochs: 1
+steps_per_epoch: 500000
+eval_steps: 0
 batch_size: 100
 lr: 4e-5
 headclip:
@@ -23,8 +24,8 @@ downstream:
 load: False
 loadpath: save/2023-09-27_06-24-36.363775/weights/
 log: True
-svwts: False
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Long pretraining"
+header: "Near full dataset pretraining"

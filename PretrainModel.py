@@ -97,8 +97,10 @@ from utils import *
 
 # Encoder model
 if mconf['encoder_name'] == 'depthcharge':
+    print("Using Depthcharge encoder")
     encoder = dc_encoder(sequence_length=config['max_peaks'])
 else:
+    print("Using user encoder")
     encoder_dic = mconf['encoder_dict']
     encoder = Encoder(**encoder_dic)
 encoder.to(device) # model shouldn't need to come off of GPU entire run
@@ -203,6 +205,47 @@ def train_step(batch, task, enc_opt, head_opt):
 
     return loss
 
+def evaluation(steps=100):
+    lst = [
+        'Qm', 'Qs', 'Km', 'Ks', 
+        'Vm', 'Vs', 'QKm', 'QKs', 
+        'WTSm', 'WTSs', 'ATTm', 'ATTs', 
+        'RESATTm', 'RESATTs', 'FFN1m', 
+        'FFN1s', 'FFN2m', 'FFN2s', 'TBm', 'TBs'
+    ]
+    ll = len(lst)
+
+    encoder.eval()
+    with th.no_grad():
+        others = np.zeros((9,ll))
+        for step, batch in enumerate(L):
+            if step == steps: break
+            print("\rEvaluation step %d/%d"%(step, steps), end='')
+            
+            batch = U.Dict2dev(batch, device, inplace=False)
+
+            mzab_inp = th.cat([batch['mz'][...,None], batch['ab'][...,None]], -1)
+            inp = {
+                'x': mzab_inp,
+                'charge': None,
+                'mass': None,
+                #'length': batch['length'],
+                'return_mask': True,
+                'return_full': True
+            }
+            enc_output = encoder(**inp)
+            stats = np.stack([
+                np.concatenate([[n.cpu().detach().numpy().mean(), n.cpu().detach().numpy().std()] for n in line]) 
+                for line in enc_output['other']
+            ])
+            others += stats
+    others /= steps
+
+    with open("activations.txt", "a") as f:
+        f.write((" ".join(ll*['%8s']))%tuple(lst) + '\n')
+        for m in range(9):
+            f.write((" ".join(ll*["%8.5f"]))%tuple(others[m]) + '\n')
+
 def train(epochs=1, runlen=50, svfreq=3600):
     
     # Shorthand
@@ -251,6 +294,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
     svtime = time()
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
     
+    if config['eval_steps']>0: evaluation(config['eval_steps'])
     for epoch in range(epochs):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
@@ -321,6 +365,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
         if msg:
             U.message_board(Line+'\n', "save/%s/epochout.txt"%svdir)
             allepochlines.append(Line+"\n")
+
+        if config['eval_steps']>0: evaluation(config['eval_steps'])
     
     # End of pre-training
     # Save weights, perhaps
@@ -334,18 +380,19 @@ def train(epochs=1, runlen=50, svfreq=3600):
         np.savetxt('save/'+svdir+"/parmgrads", np.array(parmgrads))
 
     # Run quick(ish) few shot downstream evaluation
-    for dstask in config['downstream']:
-        DS = allds[dstask](
-            dsconfig, base_model=encoder, 
-            svdir='save/%s/dswts/%s/'%(svdir, dstask)
-        )
-        sys.stdout.write("\r\033[KDownstream evlauation: %s\n"%(dstask))
-        line, highline = DS.TrainEval()
-        Line = "Downstream evlauation: %s; "%(dstask) + highline
-        sys.stdout.write("\r\033[K%s\n"%Line)
-        if msg:
-            U.message_board("\n".join(line)+'\n', "save/%s/epochout.txt"%svdir)
-            allepochlines.append(Line+"\n")
+    if config['downstream'] is not None:
+        for dstask in config['downstream']:
+            DS = allds[dstask](
+                dsconfig, base_model=encoder, 
+                svdir='save/%s/dswts/%s/'%(svdir, dstask)
+            )
+            sys.stdout.write("\r\033[KDownstream evlauation: %s\n"%(dstask))
+            line, highline = DS.TrainEval()
+            Line = "Downstream evlauation: %s; "%(dstask) + highline
+            sys.stdout.write("\r\033[K%s\n"%Line)
+            if msg:
+                U.message_board("\n".join(line)+'\n', "save/%s/epochout.txt"%svdir)
+                allepochlines.append(Line+"\n")
     if msg:
         # Append results to the .all files
         U.message_board("".join(allepochlines), "save/epochout.all")
