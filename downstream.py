@@ -44,6 +44,8 @@ class DownstreamObj:
         if self.imported:
             assert self.config['loader']['top_pks'] == imported_encoder.sl
             #self.config['loader']['top_pks'] == imported_encoder.sl
+            self.encoder = imported_encoder
+
         else:
             # If no saved pretraining model
             # Get configuration settings from current pretrain yaml files
@@ -57,6 +59,7 @@ class DownstreamObj:
                 assert os.path.exists(self.config['pretrain_path'])
                 yaml_config_path = self.config['pretrain_path']+'/yaml/config.yaml'
                 yaml_model_path = self.config['pretrain_path']+'/yaml/models.yaml'
+                weights_path = self.config['pretrain_path']+'/weights/model_enc.wts'
         
             # Open yaml files
             with open(yaml_config_path) as stream:
@@ -66,15 +69,12 @@ class DownstreamObj:
             # Transfer over settings to self.config
             self.config['loader']['top_pks'] = ptconf['max_peaks']
             self.config['encoder_dict'] = ptmodconf['encoder_dict']
-        
-        # Set self.encoder
-        self.encoder = (
-            imported_encoder 
-            if imported_encoder is not None else
-            Encoder(**self.config['encoder_dict'], device=device)
-        )
-        self.encoder.to(device)
 
+            self.encoder = Encoder(**self.config['encoder_dict'], device=device)
+            if self.config['pretrain_path'] is not None:
+                self.encoder.load_state_dict(th.load(weights_path, map_location=device))
+        
+        self.encoder.to(device)
         self.opt_encoder = th.optim.Adam(
             self.encoder.parameters(), self.config['lr']
         )
@@ -406,6 +406,7 @@ class DenovoBlDSObj(BaseDenovo):
         target = batch['seqint'].type(th.int64)
 
         return enc_input, target
+
 """
 # Read downstream yaml
 with open("./yaml/downstream.yaml") as stream:

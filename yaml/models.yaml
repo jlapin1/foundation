@@ -12,11 +12,11 @@ encoder_dict:
   use_charge: False
   use_mass: False
   pairwise_bias: False
-  pw_mz_units: 512
+  pw_mz_units: 64
   pw_run_units: 32
-  pw_attention_ch: 32
+  pw_attention_ch: 16
   pw_attention_h: 4
-  pw_blocks: 1
+  pw_blocks: 3
 
 header_dict:
   in_units: 256

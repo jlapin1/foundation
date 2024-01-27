@@ -238,7 +238,7 @@ class Encoder(nn.Module):
                 (x.shape[0], 1)
             ) # bs, seq_len
             mask = grid >= length[:, None]
-            mask = (1e5*mask).type(th.float32)
+            mask = (1e7*mask).type(th.float32)
         else:
             mask = None
         

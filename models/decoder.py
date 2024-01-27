@@ -118,6 +118,7 @@ class Decoder(nn.Module):
                 out, kv_feats=kv_feats, embed_feats=embed, spec_mask=spec_mask,
                 seq_mask=seq_mask 
             )
+            out = out['out']
         
         return out
     

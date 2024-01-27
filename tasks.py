@@ -87,7 +87,8 @@ class TrinaryTask(Task):
         inp = {
             'x': mzab_inp,
             'charge': batch['charge'],
-            'mass': batch['mass']
+            'mass': batch['mass'],
+            'length': batch['length']
         }
 
         # TARGET: Classify all inds

@@ -30,7 +30,7 @@ class QKVAttention(nn.Module):
         self.is_relpos = is_relpos
         self.maxd = max_rel_dist
         
-        self.scale = dim**-0.25
+        self.scale = dim**-0.5
         if is_relpos:
             assert sl is not None
             self.maxd = sl if max_rel_dist==None else max_rel_dist
@@ -58,7 +58,7 @@ class QKVAttention(nn.Module):
     def forward(self, Q, K, V, mask=None, bias=None, return_full=False):
         bsp, sl, dim = Q.shape
         # shape: batch/heads/etc, sequence_length, dim
-        QK = th.einsum('abc,adc->abd', self.scale*Q, self.scale*K)
+        QK = self.scale * th.einsum('abc,adc->abd', Q, K)
         if self.is_relpos:
             QK += th.einsum('abc,bec->abe', Q, self.ak)
         QK = QK.reshape(-1, self.heads, sl, K.shape[1])
@@ -182,7 +182,7 @@ class CrossAttention(BaseAttentionLayer):
         Q = self.Wq(q_feats)
         KV = self.Wkv(kv_feats)
         Q, K, V = self.get_qkv(Q, KV)
-        att = self.attention_layer(Q, K, V, mask)
+        att, other = self.attention_layer(Q, K, V, mask)
         att = att.reshape(-1, self.h, slq, self.d)
         att = att.permute([0,2,1,3])
         att = att.reshape(-1, slq, self.h*self.d)

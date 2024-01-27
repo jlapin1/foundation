@@ -205,7 +205,7 @@ def train_step(batch, task, enc_opt, head_opt):
 
     return loss
 
-def evaluation(steps=100):
+def evaluation(steps=100, out_name="activations.txt"):
     lst = [
         'Qm', 'Qs', 'Km', 'Ks', 
         'Vm', 'Vs', 'QKm', 'QKs', 
@@ -229,7 +229,7 @@ def evaluation(steps=100):
                 'x': mzab_inp,
                 'charge': None,
                 'mass': None,
-                #'length': batch['length'],
+                'length': batch['length'],
                 'return_mask': True,
                 'return_full': True
             }
@@ -241,7 +241,7 @@ def evaluation(steps=100):
             others += stats
     others /= steps
 
-    with open("activations.txt", "a") as f:
+    with open(out_name, "a") as f:
         f.write((" ".join(ll*['%8s']))%tuple(lst) + '\n')
         for m in range(9):
             f.write((" ".join(ll*["%8.5f"]))%tuple(others[m]) + '\n')
@@ -294,7 +294,9 @@ def train(epochs=1, runlen=50, svfreq=3600):
     svtime = time()
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
     
-    if config['eval_steps']>0: evaluation(config['eval_steps'])
+    if config['eval_steps']>0: 
+        evaluation(config['eval_steps'], 'save/%s/activations.txt'%svdir)
+    
     for epoch in range(epochs):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
@@ -366,7 +368,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
             U.message_board(Line+'\n', "save/%s/epochout.txt"%svdir)
             allepochlines.append(Line+"\n")
 
-        if config['eval_steps']>0: evaluation(config['eval_steps'])
+        if config['eval_steps']>0: 
+            evaluation(config['eval_steps'], 'save/%s/activations.txt'%svdir)
     
     # End of pre-training
     # Save weights, perhaps
