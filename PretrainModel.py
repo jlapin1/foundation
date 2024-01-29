@@ -126,11 +126,11 @@ def save_all_weights(svdir):
 
 if config['load']:
     ldpth = config['loadpath']
-    model.load_state_dict(th.load(ldpth + 'model_encoder.wts'))
+    encoder.load_state_dict(th.load(ldpth + 'model_enc.wts', map_location=device))
     U.load_optimizer_state(
         optencoder, ldpth + 'opt_encopt.wts', device
     )
-    header.load_state_dict(th.load(ldpth + 'model_header.wts'))
+    header.load_state_dict(th.load(ldpth + 'model_head.wts', map_location=device))
     for task_name in config['tasks']:
         # ASSUMPTION: header optimizers follow name convention 
         # opt_{task}.wts.npy

@@ -1,4 +1,4 @@
-encoder_name: mine
+encoder_name: mine # depthcharge | {other}
 encoder_dict:
   norm_type: 'layer'
   mz_units: 1024

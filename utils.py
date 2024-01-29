@@ -9,7 +9,7 @@ def save_optimizer_state(opt, fn):
     th.save(opt.state_dict(), fn)
 
 def load_optimizer_state(opt, fn, device):
-    opt.load_state_dict(th.load(fn), map_location=device)
+    opt.load_state_dict(th.load(fn, map_location=device))
 
 def save_full_model(model, optimizer, svdir):
     th.save(

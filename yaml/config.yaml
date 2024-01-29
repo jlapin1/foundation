@@ -22,10 +22,10 @@ tasks:
 downstream:
   #- denovo_ar
 load: False
-loadpath: save/2023-09-27_06-24-36.363775/weights/
+loadpath: save/2024-01-25_01-10-01.095571/weights/
 log: True
 svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Scale is **-0.5"
+header: "Everything xavier_uniform_, even Wo"
