@@ -1,6 +1,7 @@
 import torch as th
 from torch import nn
-from math import log
+import numpy as np
+twopi = 2*np.pi
 
 class BatchTorch1d(nn.Module):
     def __init__(self, units):
@@ -290,17 +291,18 @@ class ActModule(nn.Module):
     def forward(self, x):
         return self.act(x)
 
-def FourierFeatures(t, embedsz, freq=10000.):
-    embed = ( 
+def FourierFeatures(t, min_lam, max_lam, embedsz):
+    x = th.arange(embedsz//2).type(th.float32).to(t.device)
+    x /= embedsz//2 - 1
+    """embed = ( 
         t[..., None] * 
-        th.exp(
-            -log(float(freq)) * 
-            th.arange(embedsz//2).type(th.float32).to(t.device) / 
-            (embedsz//2)
-        )[None]
-    )
-    
-    return th.cat([embed.cos(), embed.sin()], dim=-1)
+        th.exp(-x*log(max_lam / min_lam) )[None] /
+        (min_lam / 6.2831853)
+    )"""
+    denom = (min_lam / twopi) * (max_lam / min_lam) ** x
+    embed = t[...,None] / denom[None]
+
+    return th.cat([embed.sin(), embed.cos()], dim=-1)
 
 def subdivide_float(x):
     mul = -1*(x < 0).type(th.float32) + (x >= 0).type(th.float32)

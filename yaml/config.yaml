@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Everything xavier_uniform_, even Wo"
+header: "Subdivide off, mz_units=512, 2*amplitude"

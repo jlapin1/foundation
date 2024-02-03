@@ -87,7 +87,7 @@ class Decoder(nn.Module):
         
         # Positional embedding
         pos = mp.FourierFeatures(
-            th.arange(self.sl, dtype=th.float32), self.run_units, 5.*self.sl
+            th.arange(self.sl, dtype=th.float32), 1, 5*self.run_units, self.run_units,
         )
         self.pos = nn.Parameter(pos, requires_grad=False)
     
@@ -136,11 +136,11 @@ class Decoder(nn.Module):
             ce_emb = []
             if self.use_charge:
                 charge = charge.type(th.float32)
-                ce_emb.append(mp.FourierFeatures(charge, self.ce_units, 10.))
+                ce_emb.append(mp.FourierFeatures(charge, 1, 10, self.ce_units))
             if self.use_energy:
-                ce_emb.append(mp.FourierFeatures(energy, self.ce_units, 150.))
+                ce_emb.append(mp.FourierFeatures(energy, 1, 150, self.ce_units))
             if self.use_mass:
-                ce_emb.append(mp.FourierFeatures(mass, self.ce_units, 20000.))
+                ce_emb.append(mp.FourierFeatures(mass, 1, 20000, self.ce_units))
             if len(ce_emb) > 1:
                 ce_emb = th.cat(ce_emb, dim=-1)
             ce_emb = self.ce_emb(ce_emb)
@@ -195,6 +195,7 @@ class DenovoDecoder:
 
         self.dec_config = dec_config
         self.decoder = Decoder(**dec_config)
+        self.state_dict = lambda: self.decoder.state_dict()
         self.encoder = encoder
 
         self.initialize_variables()
@@ -202,8 +203,8 @@ class DenovoDecoder:
     def save_weights(self, fp='./decoder.wts'):
         th.save(self.decoder.state_dict(), fp)
 
-    def load_weights(self, fp='./decoder.wts'):
-        self.decoder.load_state_dict(th.load(fp))
+    def load_weights(self, fp='./decoder.wts', device=th.device('cpu')):
+        self.decoder.load_state_dict(th.load(fp, map_location=device))
     
     def train(self):
         self.decoder.train()

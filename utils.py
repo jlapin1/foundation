@@ -4,6 +4,7 @@ Functions that I don't want to define in Pretrainmodel.py
 import torch as th
 import numpy as np
 from difflib import get_close_matches as gcm
+from sklearn.metrics import average_precision_score
 
 def save_optimizer_state(opt, fn):
     th.save(opt.state_dict(), fn)
@@ -34,6 +35,13 @@ def discretize_mz(mz, binsz, totbins):
 def NonnullInds(SIArray, null_value):
     return th.where( SIArray != null_value )
 
+def OldRecall(target, prediction, null_value):
+    boolean = (target == prediction).type(th.int32)
+    recall_bool = target != null_value
+    rec_sum = boolean[recall_bool].sum()
+
+    return rec_sum / recall_bool.sum()
+
 def AccRecPrec(target, prediction, null_value):
     boolean = (target==prediction).type(th.int32)
     accsum = boolean.sum()
@@ -50,6 +58,57 @@ def AccRecPrec(target, prediction, null_value):
     }
 
     return out
+
+def RocCurveAA(target, prediction, probs, null_value=23):
+    bs, sl, pc = probs.shape
+    one = th.arange(bs)[:,None].tile(1, sl).reshape(-1,)
+    two = th.arange(sl)[None].tile(bs, 1).reshape(-1,)
+    three = prediction.reshape(-1,)
+    probs = probs.softmax(-1)[(one,two,three)]
+    
+    # Only real experimental tokens
+    bln = (target != null_value).reshape(-1,)
+    # Predicted correctly?
+    eq = (target == prediction).reshape(-1,)
+    
+    probs_ = probs[bln]
+    eq_ = eq[bln]
+    
+    # Sort confidence from high to low
+    argsort = probs_.argsort(0).flip(0)
+    probs_sort = probs_[argsort]
+    eq_sort = eq_[argsort]
+
+    #probs_sort = probs_sort[probs_sort > threshhold]
+    #eq_sort = eq_sort[probs_sort > threshhold]
+
+    cumsum = th.cumsum(eq_sort, 0)
+    precision_denom = th.arange(1, eq_sort.shape[0]+1, 1).to(prediction.device)
+    recall_denom = eq_sort.shape[0]
+    precision = cumsum / precision_denom
+    recall = cumsum / recall_denom
+    
+    auprc = average_precision_score(eq_sort.cpu().numpy(), probs_sort.cpu().numpy())
+
+    return {
+        'precision': precision.detach().cpu().numpy(), 
+        'recall': recall.detach().cpu().numpy(),
+        'probabilities': probs_sort.detach().cpu().numpy(),
+    }, auprc
+
+def roc_apply_threshold(recall, precision, probabilities, threshold=0.9):
+    boolean = probabilities > threshold
+    if sum(boolean) == 0:
+        return {'recall': 0, 'precision': 0}
+
+    recall = recall[boolean]
+    precision = precision[boolean]
+
+    return {
+        'recall': recall[-1],
+        'precision': precision[-1]
+    }
+
 
 def partition_seq(seq, collect_mods=False):
         Seq = []

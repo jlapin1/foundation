@@ -8,6 +8,7 @@ import path
 from loaders.loader_parquet import LoaderDS
 import numpy as np
 from models.encoder import Encoder
+from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import SequenceHead, ClassifierHead
 from models.decoder import DenovoDecoder
 import os
@@ -69,8 +70,13 @@ class DownstreamObj:
             # Transfer over settings to self.config
             self.config['loader']['top_pks'] = ptconf['max_peaks']
             self.config['encoder_dict'] = ptmodconf['encoder_dict']
+            
+            # ENCODER TYPE
+            if ptmodconf['encoder_name'] == 'depthcharge':
+                self.encoder = dc_encoder(sequence_length=ptconf['max_peaks'])
+            else:
+                self.encoder = Encoder(**self.config['encoder_dict'], device=device)
 
-            self.encoder = Encoder(**self.config['encoder_dict'], device=device)
             if self.config['pretrain_path'] is not None:
                 self.encoder.load_state_dict(th.load(weights_path, map_location=device))
         
@@ -80,10 +86,10 @@ class DownstreamObj:
         )
 
     def save_head(self, fp='./head.wts'):
-        th.save(self.head.model_dict(), fp)
+        th.save(self.head.state_dict(), fp)
     
     def save_encoder(self, fp='./encoder.wts'):
-        th.save(self.encoder.model_dict(), fp)
+        th.save(self.encoder.state_dict(), fp)
 
     def save_all_weights(self, der='./'):
         self.save_head(der=der+'head.wts')
@@ -203,6 +209,11 @@ class BaseDenovo(DownstreamObj):
         super().__init__(config=config, task=task, base_model=base_model)
         self.ar = ar
         if svdir[-1] != '/': svdir += '/'
+        if config['pretrain_path'] is not None:
+            svdir = "/".join([config['pretrain_path'], svdir])
+            if not os.path.exists(svdir):
+                os.mkdir(svdir)
+
         self.svdir = svdir
 
     def evaluation(self, dset='val'):
@@ -217,7 +228,7 @@ class BaseDenovo(DownstreamObj):
         # losses
         out = {'ce': 0, 'accuracy': 0, 'recall': 0, 'precision': 0}
         tots = {
-            'accuracy': {'sum': 0,'total': 0},
+            'accuracy': {'sum': 0, 'total': 0},
             'recall': {'sum': 0,'total': 0},
             'precision': {'sum': 0,'total': 0},
         }
@@ -250,7 +261,7 @@ class BaseDenovo(DownstreamObj):
                 self.LossFunction(target, pred).sum()
             )
             
-            stats = U.AccRecPrec(target, prediction, self.dl.amod_dic['X'])
+            stats = U.AccRecPrec(target, prediction, null_value=self.dl.amod_dic['X'])
             for metric in stats.keys():
                 for key, val in stats[metric].items():
                     tots[metric][key] += val
@@ -268,7 +279,7 @@ class BaseDenovo(DownstreamObj):
         for i in range(self.config['epochs']):
             self.train_epoch(SeqInts=True) # Notice: SeqInts is true
             out = self.evaluation(dset=eval_dset)
-            line = "ValEpoch %d: Cross-entropy=%.6f, Accuracy=%.6f, Recall=%.6f, Precision=%.6f"%(
+            line = "ValEpoch %d: Cross-entropy=%.6f, Accuracy=%6f, Recall=%.6f, Precision=%.6f"%(
                 (i,) + tuple(out.values())
             )
             if out['recall']>highscore:
@@ -415,5 +426,6 @@ with open("./yaml/downstream.yaml") as stream:
 # Downstream object
 print("Denovo sequencing")
 D = DenovoArDSObj(config)
+#out = D.evaluation(dset='val')
 print("\n".join(D.TrainEval()))
 """

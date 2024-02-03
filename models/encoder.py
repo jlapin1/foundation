@@ -16,14 +16,14 @@ def init_encoder_weights(module):
             module.first.bias = I.zeros_(module.first.bias)
     if isinstance(module, mp.SelfAttention):
         #maxmin = (6 / (module.qkv.in_features + module.d))**0.5
-        module.qkv.weight = I.xavier_uniform_(module.qkv.weight)#, -maxmin, maxmin)
-        module.Wo.weight = I.xavier_uniform_(module.Wo.weight)
-        #module.qkv.weight = I.normal_(module.qkv.weight, 0.0, (2/3)*module.indim**-0.5)
-        #module.Wo.weight = I.normal_(module.Wo.weight, 0.0, 0.3*(module.h*module.d)**-0.5)
+        #module.qkv.weight = I.xavier_uniform_(module.qkv.weight)#, -maxmin, maxmin)
+        #module.Wo.weight = I.xavier_uniform_(module.Wo.weight)
+        module.qkv.weight = I.normal_(module.qkv.weight, 0.0, (2/3)*module.indim**-0.5)
+        module.Wo.weight = I.normal_(module.Wo.weight, 0.0, (1/3)*(module.h*module.d)**-0.5)
     elif isinstance(module, mp.FFN):
         module.W1.weight = I.xavier_uniform_(module.W1.weight)
         module.W1.bias = I.zeros_(module.W1.bias)
-        module.W2.weight = I.normal_(module.W2.weight, 0.0, 0.3*(module.indim*module.mult)**-0.5)
+        module.W2.weight = I.normal_(module.W2.weight, 0.0, (1/3)*(module.indim*module.mult)**-0.5)
         module.W2.weight = I.xavier_uniform_(module.W2.weight)
     elif isinstance(module, nn.Linear):
         module.weight = I.xavier_uniform_(module.weight)
@@ -117,7 +117,7 @@ class Encoder(nn.Module):
             )
         
         # First transformation
-        self.first = nn.Linear(mz_units+ab_units, running_units)
+        self.first = nn.Linear(mz_units+ab_units, running_units, bias=False)
 
         # Main block
         attention_dict = {
@@ -164,7 +164,7 @@ class Encoder(nn.Module):
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
         pos = mp.FourierFeatures(
-            th.arange(1000, dtype=th.float32), self.run_units, 5.*1000
+            th.arange(1000, dtype=th.float32), 1, 5000, self.run_units,
         )
         self.pos = nn.Parameter(pos, requires_grad=False)
 
@@ -179,13 +179,12 @@ class Encoder(nn.Module):
         Mz = Mz.squeeze()
         if self.subdivide:
             mz = mp.subdivide_float(Mz)
-            mz_emb = mp.FourierFeatures(mz, self.mdim, 1000.)#.to(x.device)
+            mz_emb = mp.FourierFeatures(mz, 1, 100000, self.mdim)
         else:
-            mz_emb = mp.FourierFeatures(Mz, self.mz_units, 10000.)#.to(x.device)
+            mz_emb = mp.FourierFeatures(Mz, 0.001, 10000, self.mz_units)
         mz_emb = self.MzSeq(mz_emb) # multiply sequential to mz fourier feature
         mz_emb = mz_emb.reshape(x.shape[0], x.shape[1], -1)
-        # ASSUME ab comes in 0-1, multiply by 100 (0-100) before expansion
-        ab_emb = mp.FourierFeatures(100*ab[...,0], self.ab_units, 500.)
+        ab_emb = mp.FourierFeatures(ab[...,0], 0.000001, 1, self.ab_units)
         
         # Apply input mask, if necessary
         if inp_mask is not None:
@@ -269,7 +268,7 @@ class Encoder(nn.Module):
             pwemb = self.pwfirst(pwemb) + self.alphapw * self.pospw() # REMOVE
             pwemb = self.PwSeq(pwemb)
         
-        out = self.first(mabemb) + self.alpha*self.pos[:x.shape[1]]
+        out = self.first(mabemb)# + self.alpha*self.pos[:x.shape[1]]
         
         # Reycling the embedding with normalization, perhaps dense transform
         out += self.recyc(emb)
