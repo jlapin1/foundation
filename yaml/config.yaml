@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Subdivide off, mz_units=512, 2*amplitude"
+header: "Pairwise, 1 pairstack layer"
