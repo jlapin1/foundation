@@ -25,11 +25,6 @@ def init_encoder_weights(module):
         module.W1.bias = I.zeros_(module.W1.bias)
         module.W2.weight = I.normal_(module.W2.weight, 0.0, (1/3)*(module.indim*module.mult)**-0.5)
         module.W2.weight = I.xavier_uniform_(module.W2.weight)
-    #elif isinstance(module, Encoder):
-    #    module.MzSeq[0].weight = I.normal_(module.MzSeq[0].weight, 0.0, 0.03)
-    #    module.MzSeq[0].bias = I.zeros_(module.MzSeq[0].bias)
-    #    module.MzSeq[2].weight = I.normal_(module.MzSeq[2].weight, 0.0, 0.03)
-    #    module.MzSeq[2].bias = I.zeros_(module.MzSeq[2].bias)
     elif isinstance(module, nn.Linear):
         module.weight = I.xavier_uniform_(module.weight)
         if module.bias is not None:
@@ -94,11 +89,7 @@ class Encoder(nn.Module):
         
         mdim = mz_units//4 if subdivide else mz_units
         self.mdim = mdim
-        self.MzSeq = nn.Identity()#Sequential(
-        #    nn.Linear(mz_units, 4*mz_units), 
-        #    nn.SiLU(),
-        #    nn.Linear(4*mz_units, mz_units)
-        #)
+        self.MzSeq = nn.Identity()
 
         # Pairwise mz
         if pairwise_bias:
@@ -211,7 +202,7 @@ class Encoder(nn.Module):
                 mzpw = mp.subdivide_float(dtsr)
                 mzpw_emb = mp.FourierFeatures(mzpw, 0.001, 10000, self.mdimpw)
             else:
-                mzpw_emb = mp.FourierFeatures(dtsr, 2*np.pi, 10000, self.pw_mzunits)
+                mzpw_emb = mp.FourierFeatures(dtsr, 0.001, 10000, self.pw_mzunits)
             # transform based on pw_units
             mzpw_emb = self.MzpwSeq(mzpw_emb)
             mzpw_emb = mzpw_emb.reshape(x.shape[0], x.shape[1], x.shape[1], -1)

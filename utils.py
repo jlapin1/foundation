@@ -59,20 +59,31 @@ def AccRecPrec(target, prediction, null_value):
 
     return out
 
-def RocCurveAA(target, prediction, probs, null_value=23):
+def RocCurve(target, prediction, probs, null_value=23, typ='aa'):
     bs, sl, pc = probs.shape
     one = th.arange(bs)[:,None].tile(1, sl).reshape(-1,)
     two = th.arange(sl)[None].tile(bs, 1).reshape(-1,)
     three = prediction.reshape(-1,)
     probs = probs.softmax(-1)[(one,two,three)]
     
-    # Only real experimental tokens
-    bln = (target != null_value).reshape(-1,)
-    # Predicted correctly?
-    eq = (target == prediction).reshape(-1,)
-    
-    probs_ = probs[bln]
-    eq_ = eq[bln]
+    if typ == 'aa':
+        # Only real experimental tokens
+        bln = (target != null_value).reshape(-1,)
+        # Predicted correctly?
+        eq = (target == prediction).reshape(-1,)
+        
+        probs_ = probs[bln]
+        eq_ = eq[bln]
+    elif typ == 'pep':
+        # Peptide predicted correctly?
+        nonnull = target != null_value
+        bln = (target == prediction) & nonnull
+        eq_ = bln.sum(1) == nonnull.sum(1) # all aa's correct?
+
+        probs = probs.reshape(bs, sl)
+        probs_ = (probs * nonnull).sum(1) / nonnull.sum(1)
+        #log_conf = (probs.log() * bln).sum(1)
+        #probs_ = log_conf.exp()
     
     # Sort confidence from high to low
     argsort = probs_.argsort(0).flip(0)
@@ -88,7 +99,10 @@ def RocCurveAA(target, prediction, probs, null_value=23):
     precision = cumsum / precision_denom
     recall = cumsum / recall_denom
     
-    auprc = average_precision_score(eq_sort.cpu().numpy(), probs_sort.cpu().numpy())
+    if eq_sort.sum() > 0:
+        auprc = average_precision_score(eq_sort.cpu().numpy(), probs_sort.cpu().numpy())
+    else:
+        auprc = 0
 
     return {
         'precision': precision.detach().cpu().numpy(), 

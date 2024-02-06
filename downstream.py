@@ -60,7 +60,11 @@ class DownstreamObj:
                 assert os.path.exists(self.config['pretrain_path'])
                 yaml_config_path = self.config['pretrain_path']+'/yaml/config.yaml'
                 yaml_model_path = self.config['pretrain_path']+'/yaml/models.yaml'
-                weights_path = self.config['pretrain_path']+'/weights/model_enc.wts'
+                if self.config['dswts']:
+                    assert os.path.exists(self.config['pretrain_path']+'/dswts')
+                    weights_path = self.config['pretrain_path']+'/dswts/encoder.wts'
+                else:
+                    weights_path = self.config['pretrain_path']+'/weights/model_enc.wts'
         
             # Open yaml files
             with open(yaml_config_path) as stream:
@@ -213,7 +217,6 @@ class BaseDenovo(DownstreamObj):
             svdir = "/".join([config['pretrain_path'], svdir])
             if not os.path.exists(svdir):
                 os.mkdir(svdir)
-
         self.svdir = svdir
 
     def evaluation(self, dset='val'):
@@ -226,11 +229,11 @@ class BaseDenovo(DownstreamObj):
         steps += 0 if (totsz % self.config['batch_size'])==0 else 1
         
         # losses
-        out = {'ce': 0, 'accuracy': 0, 'recall': 0, 'precision': 0}
+        out = {'ce': 0, 'old_recall': 0, 'recall': 0, 'precision': 0, 'auprc': 0}
+        old_recall_sum = 0
         tots = {
-            'accuracy': {'sum': 0, 'total': 0},
-            'recall': {'sum': 0,'total': 0},
-            'precision': {'sum': 0,'total': 0},
+            'recall': 0,
+            'precision': 0,
         }
 
         self.encoder.eval()
@@ -260,15 +263,20 @@ class BaseDenovo(DownstreamObj):
                 if self.ar else 
                 self.LossFunction(target, pred).sum()
             )
-            
-            stats = U.AccRecPrec(target, prediction, null_value=self.dl.amod_dic['X'])
-            for metric in stats.keys():
-                for key, val in stats[metric].items():
-                    tots[metric][key] += val
+                        
+            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.dl.amod_dic['X'], typ='aa')
+            out['old_recall'] += U.roc_apply_threshold(**vecs, threshold=0)['recall']*vecs['precision'].shape[0]
+            old_recall_sum += vecs['precision'].shape[0]
+            out['auprc'] += auprc
+            roc_stats = U.roc_apply_threshold(**vecs, threshold=0.9)
+            for metric in roc_stats.keys():
+                tots[metric] += roc_stats[metric]
         
         out['ce'] = out['ce'] / (totsz * self.config['sl'])
-        for metric in stats.keys():
-            out[metric] = tots[metric]['sum'] / tots[metric]['total']
+        out['old_recall'] = out['old_recall'] / old_recall_sum
+        out['auprc'] = out['auprc'] / steps
+        for metric in roc_stats.keys():
+            out[metric] = tots[metric] /  steps
 
         return out
 
@@ -279,7 +287,7 @@ class BaseDenovo(DownstreamObj):
         for i in range(self.config['epochs']):
             self.train_epoch(SeqInts=True) # Notice: SeqInts is true
             out = self.evaluation(dset=eval_dset)
-            line = "ValEpoch %d: Cross-entropy=%.6f, Accuracy=%6f, Recall=%.6f, Precision=%.6f"%(
+            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
                 (i,) + tuple(out.values())
             )
             if out['recall']>highscore:
@@ -315,6 +323,8 @@ class DenovoArDSObj(BaseDenovo):
             token_dict=self.dl.amod_dic, dec_config=head_dict, 
             encoder=base_model
         )
+        if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
+            self.head.load_weights(self.svdir + '/head.wts', device)
         self.head.decoder.to(device)
         
         self.opt_head = th.optim.Adam(self.head.parameters(), config['lr'])
@@ -418,7 +428,7 @@ class DenovoBlDSObj(BaseDenovo):
 
         return enc_input, target
 
-"""
+#"""
 # Read downstream yaml
 with open("./yaml/downstream.yaml") as stream:
     config = yaml.safe_load(stream)
@@ -428,4 +438,4 @@ print("Denovo sequencing")
 D = DenovoArDSObj(config)
 #out = D.evaluation(dset='val')
 print("\n".join(D.TrainEval()))
-"""
+#"""
