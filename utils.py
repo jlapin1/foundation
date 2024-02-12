@@ -61,13 +61,13 @@ def AccRecPrec(target, prediction, null_value):
 
 def RocCurve(target, prediction, probs, null_value=23, typ='aa'):
     bs, sl, pc = probs.shape
-    one = th.arange(bs)[:,None].tile(1, sl).reshape(-1,)
-    two = th.arange(sl)[None].tile(bs, 1).reshape(-1,)
-    three = prediction.reshape(-1,)
+    one = th.arange(bs)[:,None].tile(1, sl).reshape(-1,).type(th.int32)
+    two = th.arange(sl)[None].tile(bs, 1).reshape(-1,).type(th.int32)
+    three = prediction.reshape(-1,).type(th.int32)
     probs = probs.softmax(-1)[(one,two,three)]
     
     if typ == 'aa':
-        # Only real experimental tokens
+        1# Only real experimental tokens
         bln = (target != null_value).reshape(-1,)
         # Predicted correctly?
         eq = (target == prediction).reshape(-1,)
@@ -100,10 +100,10 @@ def RocCurve(target, prediction, probs, null_value=23, typ='aa'):
     recall = cumsum / recall_denom
     
     if eq_sort.sum() > 0:
-        auprc = average_precision_score(eq_sort.cpu().numpy(), probs_sort.cpu().numpy())
+        auprc = average_precision_score(eq_sort.detach().cpu().numpy(), probs_sort.detach().cpu().numpy())
     else:
         auprc = 0
-
+    
     return {
         'precision': precision.detach().cpu().numpy(), 
         'recall': recall.detach().cpu().numpy(),
@@ -185,15 +185,11 @@ class Scale:
 
         self.tok2mass = {key: int2mass[amod_dict[key]] for key in amod_dict.keys()}
         self.mp = th.tensor(int2mass, dtype=th.float32)
-        """self.mp = tf.lookup.StaticVocabularyTable(
-            tf.lookup.KeyValueTensorInitializer(
-                list(int2mass.keys()), list(int2mass.values()),
-                key_dtype=tf.int64, value_dtype=tf.float32
-            ), num_oov_buckets=1
-        )"""
     
     def intseq2mass(self, intseq):
-        return th.gather(self.mp, 0, intseq).sum(1)
+        sumdim = 0 if len(intseq.shape) == 1 else 1
+        masses = self.mp.to(intseq.device)
+        return th.gather(masses, 0, intseq).sum(sumdim)
 
     def modseq2mass(self, modified_sequence):
         return np.sum(
