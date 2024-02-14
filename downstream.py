@@ -428,7 +428,7 @@ class DenovoBlDSObj(BaseDenovo):
 
         return enc_input, target
 
-#"""
+"""
 # Read downstream yaml
 with open("./yaml/downstream.yaml") as stream:
     config = yaml.safe_load(stream)
@@ -438,4 +438,4 @@ print("Denovo sequencing")
 D = DenovoArDSObj(config)
 #out = D.evaluation(dset='val')
 print("\n".join(D.TrainEval()))
-#"""
+"""

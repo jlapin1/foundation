@@ -254,7 +254,7 @@ class Encoder(nn.Module):
             if self.use_energy:
                 ce_emb.append(mp.FourierFeatures(energy, self.ce_units, 150.))
             if self.use_mass:
-                ce_emb.append(mp.FourierFeatures(mass, self.ce_units, 20000.))
+                ce_emb.append(mp.FourierFeatures(mass, 0.001, 10000, self.ce_units))
             # tf.concat works if list is 1 or multiple members
             ce_emb = th.cat(ce_emb, dim=-1)
             ce_emb = self.ce_emb(ce_emb)

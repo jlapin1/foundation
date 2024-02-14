@@ -228,7 +228,7 @@ def evaluation(steps=100, out_name="activations.txt"):
             inp = {
                 'x': mzab_inp,
                 'charge': None,
-                'mass': None,
+                'mass': batch['mass'] if encoder_dic['use_mass'] else None,
                 'length': batch['length'],
                 'return_mask': True,
                 'return_full': True

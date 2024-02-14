@@ -11,7 +11,7 @@ encoder_dict:
   ffn_multiplier: 4
   prenorm: True
   use_charge: False
-  use_mass: False
+  use_mass: True
   pairwise_bias: False
   pw_mz_units: 64
   pw_run_units: 64

@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Pairwise, 1 pairstack layer"
+header: "Including precursor mass FF(0.001, 10000)"
