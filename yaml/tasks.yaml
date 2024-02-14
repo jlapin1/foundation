@@ -20,10 +20,5 @@ hidden_charge:
   loss_weight: 1
 hidden_mass:
   loss_weight: 1
-doctored_mz:
-  sys_std: 5
-  rand_std: 0.1
-  loss_weight: 1
-doctored_mz2:
-  std: 3
-  loss_weight: 1
+maldi:
+  freq: 0.15

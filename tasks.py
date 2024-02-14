@@ -8,7 +8,7 @@ F = th.nn.functional
 
 class Task:
     def __init__(self, typ, maxlen=50):
-        assert typ.lower() in ['mz', 'ab', 'charge', 'mass']
+        assert typ.lower() in ['mz', 'ab', 'both', 'charge', 'mass']
         self.typ = typ.lower()
         self.maxlen = maxlen
         self.running_loss = {'main': deque(maxlen=maxlen)}
@@ -299,6 +299,82 @@ class HiddenMass(Task):
 
         return loss
 
+class Maldi(Task):
+    def __init__(self, freq=0.15):
+        super().__init__(typ='both')
+        self.freq = freq
+
+    def inptarg(self, batch):
+        mz = deepcopy(batch['mz'])
+        ab = deepcopy(batch['ab'])
+        bs, sl = mz.shape
+        
+        # Don't shuffle filler peaks
+        nonzero_spectrum_indices = th.where(mz != 0)
+        nonzero_spectrum_indices = th.cat([m.unsqueeze(1) for m in nonzero_spectrum_indices], 1)
+        
+        # Choose 15% of the non-zero peaks
+        hold = th.rand(nonzero_spectrum_indices.shape[0]) < self.freq
+        rand_indices = nonzero_spectrum_indices[hold]
+        hold = th.rand(rand_indices.shape[0])
+
+        # Choose half to keep and half to permute
+        #keep_indices = rand_indices[hold<0.5]
+        change_indices = rand_indices[hold>=0.5]
+        
+        # Random permutation of (indices of) the peak indices to change
+        perm = th.randperm(change_indices.shape[0], device=mz.device)
+
+        # After permuting, which peaks ended up in the same spectrum?
+        original_batch_inds = change_indices[:,0]
+        same = original_batch_inds[perm] == original_batch_inds
+
+        # Permute amongst same peaks. Hopefully this gets rid of all peaks that
+        # ended up in the same spectrum.
+        perm2 = th.randperm(sum(same), device=mz.device)
+        #same2 = original_batch_inds[same] == original_batch_inds[same][perm2]
+        perm[same] = perm[same][perm2]
+
+        # Permute the peaks in the spectrum
+        split = [m.squeeze() for m in change_indices.split(1,-1)]
+        mz[split] = mz[change_indices[perm].split(1,-1)].squeeze()
+        ab[split] = ab[change_indices[perm].split(1,-1)].squeeze()
+        
+        # Re-sort spectrum from low to high mz, with trailing zeros
+        mz[mz==0] = 1e10
+        sort = mz.argsort(dim=1)
+        mz = th.gather(mz, 1, sort)
+        ab = th.gather(ab, 1, sort)
+        mz[mz > 1e9] = 0
+
+        # Input
+        mzab = th.cat([mz[...,None], ab[...,None]], -1)
+        inp = {
+            'x': mzab,
+            'charge': batch['charge'],
+            'mass': batch['mass'],
+            'length': batch['length']
+        }
+        
+        # Target
+        target = th.zeros_like(mz).long()
+        target[change_indices.split(1,-1)] = 1
+        self.target = target
+        
+        # Loss mask
+        mask = th.zeros_like(mz)
+        mask[rand_indices.split(1,-1)] = 1
+        self.mask = mask
+
+        return inp
+
+    def loss(self, prediction):
+        loss = F.cross_entropy(prediction.transpose(-1,-2), self.target, reduction='none')
+        loss *= self.mask
+        loss = loss.sum() / self.mask.sum()
+
+        return loss
+
 all_tasks = lambda tc: {
     'trinary_mz': TrinaryTask('mz', stdev=tc['trinary_mz']['stdev']),
     'trinary_ab': TrinaryTask(
@@ -320,5 +396,6 @@ all_tasks = lambda tc: {
         loss_weight=tc['hidden_charge']['loss_weight']
     ),
     'hidden_mass': HiddenMass(loss_weight=tc['hidden_charge']['loss_weight']),
+    'maldi': Maldi(**tc['maldi'),
 }
 

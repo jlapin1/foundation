@@ -321,7 +321,7 @@ class DenovoArDSObj(BaseDenovo):
         self.config['sl'] = self.config['loader']['pep_length'][1]
         self.head = DenovoDecoder(
             token_dict=self.dl.amod_dic, dec_config=head_dict, 
-            encoder=base_model
+            encoder=self.encoder
         )
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
             self.head.load_weights(self.svdir + '/head.wts', device)
@@ -428,7 +428,7 @@ class DenovoBlDSObj(BaseDenovo):
 
         return enc_input, target
 
-"""
+#"""
 # Read downstream yaml
 with open("./yaml/downstream.yaml") as stream:
     config = yaml.safe_load(stream)
@@ -437,5 +437,6 @@ with open("./yaml/downstream.yaml") as stream:
 print("Denovo sequencing")
 D = DenovoArDSObj(config)
 #out = D.evaluation(dset='val')
+#print(out)
 print("\n".join(D.TrainEval()))
-"""
+#"""

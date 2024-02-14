@@ -211,6 +211,10 @@ class Header(nn.Module):
             dic['num_classes'] = 3001
             self.heads['hidden_mass'] = ClassifierHead(**dic, in_units=IU)
 
+        if 'maldi' in head_dic.keys():
+            dic = head_dic['maldi']
+            self.heads['maldi'] = ClassifierHead(**dic, in_units=IU)
+
         self.opts = {
             key: th.optim.Adam(self.heads[key].parameters(), lr=lr)
             for key in 

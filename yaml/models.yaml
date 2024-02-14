@@ -11,7 +11,7 @@ encoder_dict:
   ffn_multiplier: 4
   prenorm: True
   use_charge: False
-  use_mass: True
+  use_mass: False
   pairwise_bias: False
   pw_mz_units: 64
   pw_run_units: 64
@@ -52,4 +52,10 @@ header_dict:
       norm_type: batch
       penult_units: 512
       spectrum_wise: True
+    maldi:
+      num_classes: 2
+      norm_type: batch
+      penult_units: 512
+
+
 
