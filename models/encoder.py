@@ -24,7 +24,7 @@ def init_encoder_weights(module):
         module.W1.weight = I.xavier_uniform_(module.W1.weight)
         module.W1.bias = I.zeros_(module.W1.bias)
         module.W2.weight = I.normal_(module.W2.weight, 0.0, (1/3)*(module.indim*module.mult)**-0.5)
-        module.W2.weight = I.xavier_uniform_(module.W2.weight)
+        #module.W2.weight = I.xavier_uniform_(module.W2.weight)
     elif isinstance(module, nn.Linear):
         module.weight = I.xavier_uniform_(module.weight)
         if module.bias is not None:
@@ -89,7 +89,7 @@ class Encoder(nn.Module):
         
         mdim = mz_units//4 if subdivide else mz_units
         self.mdim = mdim
-        self.MzSeq = nn.Identity()
+        self.MzSeq = nn.Identity() # # nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
 
         # Pairwise mz
         if pairwise_bias:
@@ -180,7 +180,7 @@ class Encoder(nn.Module):
         Mz = Mz.squeeze()
         if self.subdivide:
             mz = mp.subdivide_float(Mz)
-            mz_emb = mp.FourierFeatures(mz, 1, 100000, self.mdim)
+            mz_emb = mp.FourierFeatures(mz, 1, 500, self.mdim)
         else:
             mz_emb = mp.FourierFeatures(Mz, 0.001, 10000, self.mz_units)
         mz_emb = self.MzSeq(mz_emb) # multiply sequential to mz fourier feature
@@ -250,7 +250,7 @@ class Encoder(nn.Module):
             ce_emb = []
             if self.use_charge:
                 charge = charge.type(th.float32)
-                ce_emb.append(mp.FourierFeatures(charge, self.ce_units, 10.))
+                ce_emb.append(mp.FourierFeatures(charge, 1, 50, self.ce_units))
             if self.use_energy:
                 ce_emb.append(mp.FourierFeatures(energy, self.ce_units, 150.))
             if self.use_mass:

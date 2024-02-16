@@ -5,7 +5,7 @@ dswts: False
 epochs: 10
 steps_per_epoch: 10000
 train_encoder: True
-encoder_start: 0
+encoder_start: 1000
 save_weights: False
 debug: False
 # Loader options
