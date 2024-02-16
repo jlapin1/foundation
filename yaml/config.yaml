@@ -23,7 +23,7 @@ downstream:
   #- denovo_ar
 load: False
 loadpath: save/2024-01-25_01-10-01.095571/weights/
-log: True
+log: False
 svwts: False
 svfreq: 1800
 svgrad: False

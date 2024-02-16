@@ -1,11 +1,11 @@
 batch_size: 100
-lr: 0.00001
-pretrain_path: save/2024-01-28_12-59-08.367467
+lr: 0.00005
+pretrain_path: #save/2024-01-28_12-59-08.367467
 dswts: True
-epochs: 10
-steps_per_epoch: 100
+epochs: 20
+steps_per_epoch: 10000
 train_encoder: True
-encoder_start: 1000
+encoder_start: 0
 save_weights: False
 debug: False
 # Loader options
