@@ -364,6 +364,7 @@ class Maldi(Task):
         # Loss mask
         mask = th.zeros_like(mz)
         mask[rand_indices.split(1,-1)] = 1
+        #mask = (th.arange(sl, device=mz.device)[None].tile(bs,1) < batch['length'][:,None]).float()
         self.mask = mask
 
         return inp
@@ -396,6 +397,6 @@ all_tasks = lambda tc: {
         loss_weight=tc['hidden_charge']['loss_weight']
     ),
     'hidden_mass': HiddenMass(loss_weight=tc['hidden_charge']['loss_weight']),
-    'maldi': Maldi(**tc['maldi'),
+    'maldi': Maldi(**tc['maldi']),
 }
 

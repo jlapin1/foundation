@@ -12,6 +12,7 @@ class ClassifierHead(nn.Module):
                  in_units,
                  penult_units,
                  norm_type='layer',
+                 prenorm=False,
                  spectrum_wise=False
                  ):
         super(ClassifierHead, self).__init__()
@@ -23,9 +24,10 @@ class ClassifierHead(nn.Module):
         norm = mp.get_norm_type(norm_type)
 
         self.penult = nn.Sequential(
+            norm(penult_units) if prenorm else nn.Identity(),
             nn.Linear(in_units, penult_units),
             nn.GELU(),
-            norm(penult_units),
+            nn.Identity() if prenorm else norm(penult_units)
         )
         
         self.final = nn.Linear(penult_units, num_classes)

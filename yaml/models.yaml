@@ -1,9 +1,9 @@
 encoder_name: mine # depthcharge | {other}
 encoder_dict:
   norm_type: 'layer'
-  mz_units: 1024
-  ab_units: 256
-  subdivide: True
+  mz_units: 512
+  ab_units: 512
+  subdivide: False
   running_units: 512
   att_d: 64
   att_h: 8
