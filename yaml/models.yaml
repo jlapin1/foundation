@@ -12,7 +12,7 @@ encoder_dict:
   prenorm: True
   use_charge: False
   use_mass: False
-  pairwise_bias: False
+  bias: 'regular'
   pw_mz_units: 64
   pw_run_units: 64
   pw_attention_ch: 32

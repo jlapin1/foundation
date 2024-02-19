@@ -20,6 +20,9 @@ def init_encoder_weights(module):
         #module.Wo.weight = I.xavier_uniform_(module.Wo.weight)
         module.qkv.weight = I.normal_(module.qkv.weight, 0.0, (2/3)*module.indim**-0.5)
         module.Wo.weight = I.normal_(module.Wo.weight, 0.0, (1/3)*(module.h*module.d)**-0.5)
+        if hasattr(module, 'Wb'):
+            module.Wb.weight = I.zeros_(module.Wb.weight)
+            module.Wb.bias = I.zeros_(module.Wb.bias)
     elif isinstance(module, mp.FFN):
         module.W1.weight = I.xavier_uniform_(module.W1.weight)
         module.W1.bias = I.zeros_(module.W1.bias)
@@ -52,7 +55,7 @@ class Encoder(nn.Module):
                  preembed=True, # embed/add charge/energy/mass before FFN
                  depth=9, # number of transblocks
                  # Pairwise options
-                 pairwise_bias=False, # use pairwise mz tensor to create SA-bias
+                 bias=False, # use pairwise mz tensor to create SA-bias
                  pw_mz_units=None, # sinusoidal units to expand pw tensor into
                  pw_run_units=None, # units to project pw tensor to after sinusoidal expansion
                  pw_attention_ch=32, # triangle attention channels
@@ -74,7 +77,7 @@ class Encoder(nn.Module):
         self.ce_units = ce_units
         self.d = att_d
         self.h = att_h
-        self.pairwise_bias = pairwise_bias
+        self.bias = bias
         self.pw_mzunits = mz_units if pw_mz_units==None else pw_mz_units
         self.pw_runits = running_units if pw_run_units==None else pw_run_units
         self.depth = depth
@@ -92,7 +95,7 @@ class Encoder(nn.Module):
         self.MzSeq = nn.Identity() # # nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
 
         # Pairwise mz
-        if pairwise_bias:
+        if bias == 'pairwise':
             # - subidvide and expand based on mz_units, transform to pw_units
             mdimpw = self.pw_mzunits//4 if subdivide else self.pw_mzunits
             self.mdimpw = mdimpw
@@ -121,13 +124,15 @@ class Encoder(nn.Module):
         self.first = nn.Linear(mz_units+ab_units, running_units, bias=False)
 
         # Main block
+        assert bias in ['pairwise', 'regular', False]
         attention_dict = {
             'indim': running_units, 
             'd': att_d, 
             'h': att_h,
-            'pairwise_bias': pairwise_bias,
+            'bias': bias,
             'bias_in_units': self.pw_runits,
-            'modulator': False
+            'modulator': False,
+            'gate': False,
         }
         ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
         is_embed = True if self.atleast1 else False
@@ -195,7 +200,7 @@ class Encoder(nn.Module):
             ab_emb *= ab_mask
 
         # Pairwise features
-        if self.pairwise_bias:
+        if self.bias == 'pairwise':
             dtsr = mp.delta_tensor(Mz, 0.)
             # expand based on mz_units
             if self.subdivide:
@@ -217,7 +222,7 @@ class Encoder(nn.Module):
         out = inp
         other = []
         for layer in self.main:
-            out = layer(out, embed_feats=embed, spec_mask=mask, pwtsr=pwtsr, return_full=return_full)
+            out = layer(out, embed_feats=embed, spec_mask=mask, biastsr=pwtsr, return_full=return_full)
             other.append(out['other'])
             out = out['out']
         return {'out': self.main_proj(out), 'other': other}
@@ -265,7 +270,7 @@ class Encoder(nn.Module):
         mzab_dic = self.MzAb(x, inp_mask)
         mabemb = mzab_dic['1d']
         pwemb = mzab_dic['2d']
-        if self.pairwise_bias:
+        if self.bias == 'pairwise':
             pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
             pwemb = self.PwSeq(pwemb)
         
