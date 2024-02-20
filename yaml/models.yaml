@@ -7,6 +7,7 @@ encoder_dict:
   running_units: 512
   att_d: 64
   att_h: 8
+  gate: False
   depth: 9
   ffn_multiplier: 4
   prenorm: True
