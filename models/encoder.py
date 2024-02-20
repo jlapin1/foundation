@@ -49,6 +49,7 @@ class Encoder(nn.Module):
                  ce_units=256, # units for transformation of mzab fourier vectors
                  att_d=64, # attention qkv dimension units
                  att_h=4,  # attention qkv heads
+                 gate=False, # input dependent gate following weights*V
                  ffn_multiplier=4, # multiply inp units for 1st FFN transform
                  prenorm=True, # normalization before attention/ffn layers
                  norm_type='layer', # normalization type
@@ -124,7 +125,8 @@ class Encoder(nn.Module):
         self.first = nn.Linear(mz_units+ab_units, running_units, bias=False)
 
         # Main block
-        assert bias in ['pairwise', 'regular', False]
+        assert bias in ['pairwise', 'regular', False, None]
+        if bias == None: bias = False
         attention_dict = {
             'indim': running_units, 
             'd': att_d, 
@@ -132,7 +134,7 @@ class Encoder(nn.Module):
             'bias': bias,
             'bias_in_units': self.pw_runits,
             'modulator': False,
-            'gate': False,
+            'gate': gate,
         }
         ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
         is_embed = True if self.atleast1 else False
