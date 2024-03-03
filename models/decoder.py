@@ -4,11 +4,40 @@ from utils import Scale
 import models.model_parts as mp
 import torch as th
 from torch import nn
+I = nn.init
 # beam search dependencies
 import collections
 import einops
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import heapq
+
+def init_decoder_weights(module):
+    if hasattr(module, 'first'):
+        module.first.weight = I.xavier_uniform_(module.first.weight)
+        if module.first.bias is not None:
+            module.first.bias = I.zeros_(module.first.bias)
+    if isinstance(module, (mp.SelfAttention, mp.CrossAttention)):
+        module.Wo.weight = I.normal_(module.Wo.weight, 0.0, (1/3)*(module.h*module.d)**-0.5)
+        if hasattr(module, 'qkv'):
+            module.qkv.weight = I.normal_(module.qkv.weight, 0.0, (2/3)*module.indim**-0.5)
+        if hasattr(module, 'Wb'):
+            module.Wb.weight = I.zeros_(module.Wb.weight)
+            module.Wb.bias = I.zeros_(module.Wb.bias)
+        elif hasattr(module, 'Wpw'):
+            module.Wpw.weight = I.zeros_(module.Wpw.weight)
+            module.Wpw.bias = I.zeros_(module.Wpw.bias)
+        if hasattr(module, 'Wg'):
+            module.Wg.weight = I.zeros_(module.Wg.weight)
+            module.Wg.bias = I.constant_(module.Wg.bias, 1.) # gate mostly open ~ 0.73
+    elif isinstance(module, mp.FFN):
+        module.W1.weight = I.xavier_uniform_(module.W1.weight)
+        module.W1.bias = I.zeros_(module.W1.bias)
+        module.W2.weight = I.normal_(module.W2.weight, 0.0, (1/3)*(module.indim*module.mult)**-0.5)
+        #module.W2.weight = I.xavier_uniform_(module.W2.weight)
+    elif isinstance(module, nn.Linear):
+        module.weight = I.xavier_uniform_(module.weight)
+        if module.bias is not None:
+            module.bias = I.zeros_(module.bias)
 
 class Decoder(nn.Module):
     def __init__(self,
@@ -19,28 +48,35 @@ class Decoder(nn.Module):
                  depth=9,
                  d=64,
                  h=4,
+				 gate=False,
                  ffn_multiplier=1,
                  ce_units=256,
                  use_charge=True,
                  use_energy=False,
                  use_mass=True,
+				 prec_type='inject', # inject | pretoken | posttoken
                  norm_type='layer',
                  prenorm=True,
                  preembed=True,
                  penultimate_units=None,
+                 dropout=0,
                  pool=False,
+                 bias=False, # Att. bias: 'regular' | False/None
                  ):
         super(Decoder, self).__init__()
         self.run_units = running_units
         self.kv_indim = kv_indim
         self.sl = sequence_length
         self.num_inp_tokens = num_inp_tokens
-        self.num_out_tokens = num_inp_tokens - 2 # no need for start or hidden tokens
+        # Denovo random: No need for start or hidden tokens
+        # Denovo teacher forcing: remove Null, remove <SOS>, add <EOS>
+        self.num_out_tokens = num_inp_tokens - 1 
         self.use_charge = use_charge
         self.use_energy = use_energy
         self.use_mass = use_mass
-
+        self.bias = bias
         self.ce_units = ce_units
+        self.prec_type = prec_type
         
         # Normalization type
         self.norm = mp.get_norm_type(norm_type)
@@ -52,15 +88,30 @@ class Decoder(nn.Module):
         # charge/energy embedding transformation
         self.atleast1 = use_charge or use_energy or use_mass
         if self.atleast1:
+            assert prec_type in ['inject', 'pretoken', 'posttoken']
             num = sum([use_charge, use_energy, use_mass])
-            self.ce_emb = nn.Sequential(
-                nn.Linear(ce_units*num, ce_units), nn.SiLU()
-            )
+            if prec_type == 'inject':
+                self.ce_emb = nn.Sequential(
+                    nn.Linear(ce_units*num, self.ce_units), nn.SiLU()
+                )
+            else:
+                self.ce_emb = nn.Sequential(
+                    nn.Linear(ce_units*num, self.run_units)
+                )
         
         # Main blocks
-        attention_dict = {'indim': running_units, 'd': d, 'h': h}
-        ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
-        is_embed = True if self.atleast1 else False
+        assert bias in ['pairwise', 'regular', False, None]
+        if bias ==  None: bias = False
+        attention_dict = {
+            'indim': running_units, 
+            'd': d, 
+            'h': h,
+            'dropout': dropout,
+            #'bias': bias,
+            #'gate': gate
+        }
+        ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier, 'dropout': dropout}
+        is_embed = True if (self.atleast1 and (prec_type=='inject')) else False
         self.main = nn.ModuleList([
             mp.TransBlock(
                 attention_dict, 
@@ -92,35 +143,49 @@ class Decoder(nn.Module):
         
         # Positional embedding
         pos = mp.FourierFeatures(
-            th.arange(self.sl, dtype=th.float32), 1, 5*self.run_units, self.run_units,
+            th.arange(100, dtype=th.float32), 1, 1000, self.run_units,
         )
         self.pos = nn.Parameter(pos, requires_grad=False)
+
+        self.apply(init_decoder_weights)
     
     def total_params(self):
         return sum([m.numel() for m in self.parameters()])
     
-    def sequence_mask(self, seqlen):
+    def sequence_mask(self, seqlen, max_len=None):
         # seqlen: 1d vector equal to (zero-based) index of predict token
+        sequence_len = self.sl if max_len is None else max_len
         if seqlen==None:
-            mask = th.zeros(1, self.sl, dtype=th.float32)
+            mask = th.zeros(1, sequence_len, dtype=th.float32)
         else:
             seqs = th.tile(
-                th.arange(self.sl, device=seqlen.device)[None], (seqlen.shape[0], 1)
+                th.arange(sequence_len, device=seqlen.device)[None], 
+                (seqlen.shape[0], 1)
             )
             # Only mask out sequence positions greater than or equal to predict
             # token
             # - if predict token is at position 5 (zero-based), mask out 
             #   positions 5 to seq_len, i.e. you can only attend to positions 
             #   0, 1, 2, 3, 4
-            mask = 1e5 * (seqs >= seqlen[:,None]).type(th.float32)
+            mask = 1e7 * (seqs > seqlen[:,None]).type(th.float32) # >= excludes eos token, > includes it
         
+        return mask
+
+    def causal_mask(self, x):
+        bs, sl, c = x.shape
+        ones = th.ones(bs, sl, sl, device=x.device)
+        mask = 1e7*th.triu(ones, diagonal=1)
+
         return mask
     
     def Main(self, inp, kv_feats, embed=None, spec_mask=None, seq_mask=None):
         out = inp
         for layer in self.main:
             out = layer(
-                out, kv_feats=kv_feats, embed_feats=embed, spec_mask=spec_mask,
+                out, 
+                kv_feats=kv_feats, 
+                embed_feats=embed, 
+                spec_mask=spec_mask,
                 seq_mask=seq_mask 
             )
             out = out['out']
@@ -145,14 +210,14 @@ class Decoder(nn.Module):
             if self.use_energy:
                 ce_emb.append(mp.FourierFeatures(energy, 1, 150, self.ce_units))
             if self.use_mass:
-                ce_emb.append(mp.FourierFeatures(mass, 1, 20000, self.ce_units))
+                ce_emb.append(mp.FourierFeatures(mass, 0.001, 10000, self.ce_units))
             if len(ce_emb) > 1:
                 ce_emb = th.cat(ce_emb, dim=-1)
             ce_emb = self.ce_emb(ce_emb)
         else:
             ce_emb = None
         
-        out = seqemb + self.alpha*self.pos
+        out = seqemb + self.alpha * self.pos[: seqemb.shape[1]].unsqueeze(0)
         
         return out, ce_emb
     
@@ -167,14 +232,23 @@ class Decoder(nn.Module):
     ):
         
         out, ce_emb = self.EmbedInputs(intseq, charge=charge, energy=energy, mass=mass)
-        
-        seqmask = self.sequence_mask(seqlen)
+        if self.prec_type == 'pretoken':
+            out = th.cat([ce_emb[:,None], out], dim=1)
+            ce_emb=None
+        elif self.prec_type == 'posttoken':
+            out = th.cat([out, ce_emb[:,None]], dim=1)
+            ce_emb=None
+
+        #seqmask = self.sequence_mask(seqlen)
+        seqmask = self.causal_mask(out)
         
         out = self.Main(
             out, kv_feats=kv_feats, embed=ce_emb, 
             spec_mask=specmask, seq_mask=seqmask
         )
         
+        if self.atleast1:
+            out = out if self.prec_type=='inject' else (out[:,1:] if self.prec_type=='pretoken' else out[:,:-1])
         out = self.final(out)
         if self.pool:
             out = out.mean(dim=1)
@@ -197,12 +271,15 @@ class DenovoDecoder:
         self.outdict = deepcopy(token_dict)
         self.inpdict = deepcopy(token_dict)
         self.NT = self.outdict['X']
-        self.inpdict['<s>'] = len(self.inpdict)
-        self.start_token = self.inpdict['<s>']
-        self.inpdict['<h>'] = len(self.inpdict)
-        self.hidden_token = self.inpdict['<h>']
-        #self.inpdict['<p>'] = len(self.inpdict)
-        #self.pred_token = self.inpdict['<p>']
+        self.inpdict['<SOS>'] = len(self.inpdict)
+        self.start_token = self.inpdict['<SOS>']
+        #self.inpdict['<h>'] = len(self.inpdict)
+        #self.hidden_token = self.inpdict['<h>']
+        
+        self.outdict.pop('X')
+        self.outdict['<EOS>'] = len(self.outdict)
+        self.EOS = self.outdict['<EOS>']
+
         dec_config['num_inp_tokens'] = len(self.inpdict)
         
         self.rev_outdict = {n:m for m,n in self.outdict.items()}
@@ -211,6 +288,10 @@ class DenovoDecoder:
 
         self.dec_config = dec_config
         self.decoder = Decoder(**dec_config)
+        self.use_mass = dec_config['use_mass']
+        self.use_charge = dec_config['use_charge']
+        self.max_sl = dec_config['sequence_length'] + 1
+
         self.state_dict = lambda: self.decoder.state_dict()
         self.encoder = encoder
         
@@ -261,9 +342,8 @@ class DenovoDecoder:
     def initial_intseq(self, batch_size, seqlen=None):
         seq_length = self.seq_len if seqlen==None else seqlen
         intseq = th.empty(batch_size, seq_length-1, dtype=th.int32)
-        intseq = th.fill(intseq, self.hidden_token)
+        intseq = th.fill(intseq, self.NT)
         out = self.prepend_startok(intseq) # bs, seq_length
-        #out = self.set_tokens(out, int(seq_length+1), self.hidden_token)
 
         return out
 
@@ -323,8 +403,10 @@ class DenovoDecoder:
             'charge': charge.to(device) if self.decoder.use_charge else None,
             'energy': energy.to(device) if self.decoder.use_energy else None,
             'mass': mass.to(device) if self.decoder.use_mass else None,
-            'seqlen': self.num_reg_tokens(intseq.to(device)), # for the seq. mask
-            'specmask': enc_out['mask'].to(device),
+            #'seqlen': self.num_reg_tokens(intseq.to(device)), # for the seq. mask
+            'specmask': enc_out['mask'].to(device)
+            if enc_out['mask'] is not None
+            else enc_out['mask'],
         }
 
         return dec_inp
@@ -340,9 +422,9 @@ class DenovoDecoder:
         dev = enc_out['emb'].device
         bs = enc_out['emb'].shape[0]
         # starting intseq array
-        intseq = self.initial_intseq(bs, self.seq_len).to(dev)
-        probs = th.zeros(bs, self.seq_len, self.predcats).to(dev)
-        for i in range(self.seq_len):
+        intseq = self.initial_intseq(bs, self.max_sl).to(dev)
+        probs = th.zeros(bs, self.max_sl, self.predcats).to(dev)
+        for i in range(self.max_sl):
         
             index = int(i)
         
@@ -351,11 +433,11 @@ class DenovoDecoder:
             predictions = self.greedy(dec_out[:, index])
             probs[:,index,:] = dec_out[:,index]
             
-            if index < self.seq_len-1:
+            if index < self.max_sl-1:
                 intseq = self.set_tokens(intseq, index+1, predictions)
         
         intseq = th.cat([intseq[:, 1:], predictions[:,None]], dim=1)
-
+        
         return intseq, probs
 
     def correct_sequence_(self, enc_out, batdic, softmax=False):
@@ -393,19 +475,29 @@ class DenovoDecoder:
     def __call__(self, 
                  intseq, 
                  enc_out, 
-                 batdic, 
+                 batdic,
+                 causal=False,
                  training=False, 
                  softmax=False,
                  ):
         dec_inp = self.decinp(
-            intseq, enc_out, charge=batdic['charge'], mass=batdic['mass'], 
-            energy=None, device=self.decoder.pos.device
+            intseq, 
+            enc_out, 
+            charge=batdic['charge'], 
+            mass=batdic['mass'], 
+            energy=None,
+            device=self.decoder.pos.device
         )
+
         if training:
             self.decoder.train()
         else:
             self.decoder.eval()
+        
+        #seq_mask = self.decoder.sequence_mask(batdic['seqlen'])
+
         output = self.decoder(**dec_inp)
+        
         if softmax:
             output = th.softmax(output, dim=-1)
 

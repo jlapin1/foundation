@@ -57,6 +57,7 @@ class Encoder(nn.Module):
                  depth=9, # number of transblocks
                  # Pairwise options
                  bias=False, # use pairwise mz tensor to create SA-bias
+                 dropout=0, # dropout rate for residuals in attention and feed forward
                  pw_mz_units=None, # sinusoidal units to expand pw tensor into
                  pw_run_units=None, # units to project pw tensor to after sinusoidal expansion
                  pw_attention_ch=32, # triangle attention channels
@@ -135,6 +136,7 @@ class Encoder(nn.Module):
             'bias_in_units': self.pw_runits,
             'modulator': False,
             'gate': gate,
+            'dropout': dropout,
         }
         ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
         is_embed = True if self.atleast1 else False

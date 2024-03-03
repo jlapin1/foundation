@@ -5,6 +5,7 @@ import torch as th
 import numpy as np
 from difflib import get_close_matches as gcm
 from sklearn.metrics import average_precision_score
+from copy import deepcopy
 
 def save_optimizer_state(opt, fn):
     th.save(opt.state_dict(), fn)
@@ -67,8 +68,11 @@ def RocCurve(target, prediction, probs, null_value=23, typ='aa'):
     probs = probs.softmax(-1)[(one,two,three)]
     
     if typ == 'aa':
-        1# Only real experimental tokens
-        bln = (target != null_value).reshape(-1,)
+        # Only real experimental tokens
+        # - include first null -> <EOS>
+        target_ = deepcopy(target)
+        target_[th.arange(bs), (target==null_value).int().argmax(1)] = 1000
+        bln = (target_ != null_value).reshape(-1,)
         # Predicted correctly?
         eq = (target == prediction).reshape(-1,)
         

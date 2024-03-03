@@ -65,9 +65,15 @@ class QKVAttention(nn.Module):
         QK = QK.reshape(-1, self.heads, sl, K.shape[1])
         if bias is not None:
             QK += bias
+
+        # Make mask fit 4 dimensional QK matrix
+        if mask == None:
+            mask = th.zeros_like(QK)
+        elif len(mask.shape) == 2:
+            mask = mask[:, None, None, :] # for every head and query
+        elif len(mask.shape) == 3:
+            mask = mask[:, None]
         
-        # mask.shape: bs, 1, 1, sl
-        mask = th.zeros_like(QK) if mask==None else mask[:, None, None, :]
         weights = th.softmax(QK-mask, dim=-1)
         weights = weights.reshape(-1, sl, V.shape[1])
         
@@ -83,12 +89,13 @@ class QKVAttention(nn.Module):
         return att, other
 
 class BaseAttentionLayer(nn.Module):
-    def __init__(self, indim, d, h, out_units=None, gate=False):
+    def __init__(self, indim, d, h, out_units=None, gate=False, dropout=0):
         super(BaseAttentionLayer, self).__init__()
         self.indim = indim
         self.d = d
         self.h = h
         self.out_units = indim if out_units==None else out_units
+        self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         
         self.attention_layer = QKVAttention(h, d)
         
@@ -117,9 +124,10 @@ class SelfAttention(BaseAttentionLayer):
                  gate=False,
                  bias=False,
                  bias_in_units=None,
-                 modulator=False
+                 modulator=False,
+                 dropout=0
     ):
-        super().__init__(indim=indim, d=d, h=h, out_units=out_units, gate=gate)
+        super().__init__(indim=indim, d=d, h=h, out_units=out_units, gate=gate, dropout=dropout)
 
         self.qkv = nn.Linear(indim, 3*d*h, bias=True)
 
@@ -178,15 +186,15 @@ class SelfAttention(BaseAttentionLayer):
         att = att.reshape(-1, sl, self.d*self.h) # bs, sl, d*h
         resid = self.Wo(att)
         
-        output = self.shortcut(x) + resid
+        output = self.shortcut(x) + self.drop(resid)
         
         other = [Q, K, V] + other + [resid] if return_full else None
         
         return {'out': output, 'other': other}
 
 class CrossAttention(BaseAttentionLayer):
-    def __init__(self, indim, kvindim, d, h, out_units=None):
-        super().__init__(indim=indim, d=d, h=h, out_units=out_units)
+    def __init__(self, indim, kvindim, d, h, out_units=None, dropout=0):
+        super().__init__(indim=indim, d=d, h=h, out_units=out_units, dropout=dropout)
         
         self.Wq = nn.Linear(indim, d*h, bias=False)
         self.Wkv = nn.Linear(kvindim, 2*d*h, bias=False)
@@ -215,10 +223,10 @@ class CrossAttention(BaseAttentionLayer):
         att = att.reshape(-1, slq, self.h*self.d)
         resid = self.Wo(att)
         
-        return self.shortcut(q_feats) + resid
+        return self.shortcut(q_feats) + self.drop(resid)
 
 class FFN(nn.Module):
-    def __init__(self, indim, unit_multiplier=1, out_units=None):
+    def __init__(self, indim, unit_multiplier=1, out_units=None, dropout=0):
         super(FFN, self).__init__()
         self.indim = indim
         self.mult = unit_multiplier
@@ -230,6 +238,8 @@ class FFN(nn.Module):
         self.W2.weight = nn.Parameter( 
             nn.init.normal_(th.empty(shape), 0.0, 0.3*(indim*self.mult)**-0.5)
         )
+
+        self.drop = nn.Dropout(dropout) if dropout>0 else nn.Identity()
     
     def forward(self, x, embed=None, return_full=False):
         out1 = self.W1(x)
@@ -237,8 +247,10 @@ class FFN(nn.Module):
         out3 = self.W2(out2)
         
         other = [out1, out3] if return_full else None
+        
+        out = x + self.drop(out3)
 
-        return {'out': x + out3, 'other': other}
+        return {'out': out, 'other': other}
 
 class TransBlock(nn.Module):
     def __init__(self,

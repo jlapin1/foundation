@@ -1,11 +1,11 @@
 batch_size: 100
-lr: 0.00005
+lr: 0.0001
 pretrain_path: #save/2024-01-28_12-59-08.367467
 dswts: False
-epochs: 10
+epochs: 30
 steps_per_epoch: 10000
 train_encoder: True
-encoder_start: 1000
+encoder_start: 0
 save_weights: False
 debug: False
 # Loader options
@@ -33,15 +33,17 @@ denovo_ar:
     sequence_length: 30
     depth: 9
     d: 64
-    h: 4
+    h: 8
     ffn_multiplier: 1
     ce_units: 256
     use_charge: True
     use_energy: False
     use_mass: True
+    prec_type: 'inject'
     norm_type: 'layer'
     prenorm: True
     preembed: True
     penultimate_units:
     pool: False
+    dropout: 0.25
 

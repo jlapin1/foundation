@@ -16,6 +16,7 @@ from tqdm import tqdm
 from collections import deque
 from time import time
 import utils as U
+from copy import deepcopy
 nn = th.nn
 F = nn.functional
 choice = np.random.choice
@@ -34,6 +35,8 @@ class DownstreamObj:
         self.configure_encoder(base_model) # self.config updated
         #if not config['train_encoder']: self.encoder.trainable = False
 
+        
+        self.running_loss = []
         self.global_step = 0
     
     def configure_encoder(self, imported_encoder=None):
@@ -175,11 +178,15 @@ class DownstreamObj:
     def train_epoch(self, SeqInts=False):
         
         bs = self.config['batch_size']
-        spe = self.config['steps_per_epoch']
+        total_spectra = len(self.dl.inds['train'])
+        #spe = self.config['steps_per_epoch']
+        spe = total_spectra // bs
+        spe += 1 if (total_spectra % bs == 0) else 0
         running_loss = deque(maxlen=50)
         
         T = tqdm(range(spe))
-        perm = np.random.choice(self.dl.inds['train'], spe*bs, replace=True)
+        #perm = np.random.choice(self.dl.inds['train'], spe*bs, replace=True)
+        perm = np.random.permutation(self.dl.inds['train'])
         for step in T:
             inds = perm[step*bs : (step+1)*bs]
             batch = self.dl.load_batch(inds, 'train', SeqInts=SeqInts)
@@ -197,10 +204,12 @@ class DownstreamObj:
             self.global_step += 1
             running_loss.append(loss.detach().cpu().numpy())
             
-            if step%50==0:
-                T.set_description(
-                    "Loss: %.6f"%np.mean(running_loss), refresh=True
-                )
+            #if step%50==0:
+            rlm = np.mean(running_loss)
+            T.set_description(
+                "Running Loss: %.6f"%rlm, refresh=True
+            )
+            self.running_loss.append(rlm)
 
 class BaseDenovo(DownstreamObj):
     def __init__(self, 
@@ -219,6 +228,8 @@ class BaseDenovo(DownstreamObj):
                 os.mkdir(svdir)
         self.svdir = svdir
 
+        self.eval_stats = []
+
     def evaluation(self, dset='val'):
         
         func = self.head.predict_sequence if self.ar else self.call
@@ -235,7 +246,7 @@ class BaseDenovo(DownstreamObj):
             'recall': 0,
             'precision': 0,
         }
-
+        
         self.encoder.eval()
         self.head.eval()
         for step in tqdm(range(steps)):
@@ -247,8 +258,8 @@ class BaseDenovo(DownstreamObj):
             # Fork in the code for the 2 types of denovo models I created
             with th.no_grad():
                 if self.ar:
-                    enc_input, seqint, target = self.inptarg(
-                        batch, full_seqint=True,
+                    enc_input, seqint, target, loss_mask = self.inptarg(
+                        batch, #full_seqint=True,
                     )
                     embedding = self.encoder(**enc_input)
                     prediction, probs = self.head.predict_sequence(embedding, batch)
@@ -259,12 +270,12 @@ class BaseDenovo(DownstreamObj):
                     prediction = pred.argmax(-1).type(th.int32) # bs, sl
             
             out['ce'] += (
-                F.cross_entropy(pred, target, reduction='none').sum()
+                F.cross_entropy(pred, target, reduction='none')[loss_mask].sum()
                 if self.ar else 
-                self.LossFunction(target, pred).sum()
+                self.LossFunction(target, pred, loss_mask).sum()
             )
                         
-            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.dl.amod_dic['X'], typ='aa')
+            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='aa')
             out['old_recall'] += U.roc_apply_threshold(**vecs, threshold=0)['recall']*vecs['precision'].shape[0]
             old_recall_sum += vecs['precision'].shape[0]
             out['auprc'] += auprc
@@ -272,7 +283,7 @@ class BaseDenovo(DownstreamObj):
             for metric in roc_stats.keys():
                 tots[metric] += roc_stats[metric]
         
-        out['ce'] = out['ce'] / (totsz * self.config['sl'])
+        out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
         out['old_recall'] = out['old_recall'] / old_recall_sum
         out['auprc'] = out['auprc'] / steps
         for metric in roc_stats.keys():
@@ -285,8 +296,11 @@ class BaseDenovo(DownstreamObj):
         lines = []
         highscore = 0
         for i in range(self.config['epochs']):
+            
             self.train_epoch(SeqInts=True) # Notice: SeqInts is true
+            
             out = self.evaluation(dset=eval_dset)
+            
             line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
                 (i,) + tuple(out.values())
             )
@@ -295,11 +309,15 @@ class BaseDenovo(DownstreamObj):
                 highscore = out['recall']
             line += " (%.1f s)"%(time()-start_time)
             lines.append(line)
+            print(line)
+
+
             if self.config['save_weights']:
                 self.save_head(self.svdir+'head.wts')
                 if self.config['train_encoder']:
                     self.save_encoder(self.svdir+'encoder.wts')
-            print(line)
+            
+            self.eval_stats.append(list(out.values()))
         
         return lines, highline
 
@@ -328,9 +346,22 @@ class DenovoArDSObj(BaseDenovo):
         self.head.decoder.to(device)
         
         self.opt_head = th.optim.Adam(self.head.parameters(), config['lr'])
-        
 
-    def inptarg(self, batch, full_seqint=False):
+    def append_null_token(self, intseq):
+        bs, sl = intseq.shape
+        nulls = th.fill(th.empty(bs, dtype=th.int64), self.head.NT).to(intseq.device)
+        out = th.cat([intseq, nulls[:,None]], dim=-1)
+
+        return out
+
+    def replace_with_eos_token(self, intseq, lengths):
+        bs, sl = intseq.shape
+        eos_inds = [th.arange(bs, device=intseq.device), lengths]
+        intseq[eos_inds] = self.head.EOS
+
+        return intseq
+    
+    """def inptarg(self, batch, full_seqint=False):
         
         bs, sl = batch['seqint'].shape
         enc_input = self.encinp(batch, return_mask=True)
@@ -365,19 +396,48 @@ class DenovoArDSObj(BaseDenovo):
             batch['seqint'] if full_seqint else batch['seqint'][inds_]
         ).type(th.int64)
 
-        return enc_input, dec_inp, targ
+        return enc_input, dec_inp, targ"""
 
-    def LossFunction(self, target, decout):
+    def inptarg(self, batch):
+        
+        bs, sl = batch['seqint'].shape
+        dec_input = deepcopy(batch['seqint'])
+        target = deepcopy(batch['seqint'])
+        
+        enc_input = self.encinp(batch, return_mask=True)
+
+        dec_input = self.head.prepend_startok(dec_input)
+
+        target = self.append_null_token(target)
+        target = self.replace_with_eos_token(target, batch['peplen'])
+
+        loss_mask = self.head.decoder.sequence_mask(batch['peplen'], target.shape[1])
+        loss_mask = loss_mask == 0
+
+        return enc_input, dec_input, target, loss_mask
+
+    """def LossFunction(self, target, decout):
         targ_one_hot = F.one_hot(target, self.predcats).type(th.float32)
         logits = decout[self.inds]
         loss = F.cross_entropy(logits, targ_one_hot)
+
+        return loss"""
+
+    def LossFunction(self, target, prediction, loss_mask):
+        targ_one_hot = F.one_hot(target, self.predcats).type(th.float32)
+        targ_one_hot = targ_one_hot.transpose(-1,-2)
+        prediction = prediction.transpose(-1,-2)
+        all_loss = F.cross_entropy(prediction, targ_one_hot, reduction='none')
+        masked_loss = all_loss[loss_mask]
+        loss = masked_loss.sum() / loss_mask.sum()
 
         return loss
 
     def train_step(self, batch, trenc=True):
         batch = U.Dict2dev(batch, device)
-        enc_input, seqint, target = self.inptarg(batch)
-        
+        #enc_input, seqint, target = self.inptarg(batch)
+        enc_input, dec_input, target, loss_mask = self.inptarg(batch)
+
         self.encoder.to(device)
         if trenc:
             self.encoder.train()
@@ -390,8 +450,8 @@ class DenovoArDSObj(BaseDenovo):
         
         self.head.train()
         self.head.decoder.zero_grad()
-        head_out = self.head(seqint, embedding, batch, training=True)
-        all_loss = self.LossFunction(target, head_out)
+        head_out = self.head(dec_input, embedding, batch, training=True)
+        all_loss = self.LossFunction(target, head_out, loss_mask)
         loss = all_loss.mean()
         
         loss.backward()
@@ -428,7 +488,7 @@ class DenovoBlDSObj(BaseDenovo):
 
         return enc_input, target
 
-"""
+#"""
 # Read downstream yaml
 with open("./yaml/downstream.yaml") as stream:
     config = yaml.safe_load(stream)
@@ -438,4 +498,6 @@ print("Denovo sequencing")
 D = DenovoArDSObj(config)
 #out = D.evaluation(dset='val')
 print("\n".join(D.TrainEval()[0]))
-"""
+np.savetxt("save/running_loss3.txt", D.running_loss, fmt='%.6f')
+np.savetxt("save/eval_stats3.csv", np.array(D.eval_stats), fmt='%.6f')
+#"""
