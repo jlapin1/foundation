@@ -28,14 +28,22 @@ class DownstreamObj:
         # Config is entire downstream yaml
         self.config = config
         self.task = task
-        
+       
+        if config['lr_warmup']:
+            self.lr_warmup_increment = (
+                (config['lr_warmup_end']-config['lr_warmup_start']) / 
+                config['lr_warmup_steps']
+            )
+            self.starting_lr = config['lr_warmup_start']
+        else:
+            self.starting_lr = config['lr']
+
         # Base model
         # - must do base model beforehand dataloader in order to transfer over 
         #   its configuration settings to self.config
         self.configure_encoder(base_model) # self.config updated
         #if not config['train_encoder']: self.encoder.trainable = False
-
-        
+ 
         self.running_loss = []
         self.global_step = 0
     
@@ -89,7 +97,7 @@ class DownstreamObj:
         
         self.encoder.to(device)
         self.opt_encoder = th.optim.Adam(
-            self.encoder.parameters(), self.config['lr']
+            self.encoder.parameters(), self.starting_lr
         )
 
     def save_head(self, fp='./head.wts'):
@@ -169,6 +177,7 @@ class DownstreamObj:
         loss = all_loss.mean()
         
         loss.backward()
+        
         self.opt_head.step()
         if trenc:
             self.opt_encoder.step()
@@ -186,6 +195,7 @@ class DownstreamObj:
         
         T = tqdm(range(spe))
         #perm = np.random.choice(self.dl.inds['train'], spe*bs, replace=True)
+        #np.random.seed(100)
         perm = np.random.permutation(self.dl.inds['train'])
         for step in T:
             inds = perm[step*bs : (step+1)*bs]
@@ -345,7 +355,7 @@ class DenovoArDSObj(BaseDenovo):
             self.head.load_weights(self.svdir + '/head.wts', device)
         self.head.decoder.to(device)
         
-        self.opt_head = th.optim.Adam(self.head.parameters(), config['lr'])
+        self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
 
     def append_null_token(self, intseq):
         bs, sl = intseq.shape
@@ -455,6 +465,12 @@ class DenovoArDSObj(BaseDenovo):
         loss = all_loss.mean()
         
         loss.backward()
+        
+        if self.config['lr_warmup']:
+            if self.global_step < self.config['lr_warmup_steps']:
+                self.opt_head.param_groups[-1]['lr'] += self.lr_warmup_increment
+                self.opt_encoder.param_groups[-1]['lr'] += self.lr_warmup_increment
+
         self.opt_head.step()
         if trenc:
             self.opt_encoder.step()
@@ -498,6 +514,6 @@ print("Denovo sequencing")
 D = DenovoArDSObj(config)
 #out = D.evaluation(dset='val')
 print("\n".join(D.TrainEval()[0]))
-np.savetxt("save/running_loss3.txt", D.running_loss, fmt='%.6f')
-np.savetxt("save/eval_stats3.csv", np.array(D.eval_stats), fmt='%.6f')
+np.savetxt("save/running_loss5.txt", D.running_loss, fmt='%.6f')
+np.savetxt("save/eval_stats5.csv", np.array(D.eval_stats), fmt='%.6f')
 #"""
