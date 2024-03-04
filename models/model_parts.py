@@ -114,6 +114,9 @@ class BaseAttentionLayer(nn.Module):
         self.gate = gate
         if gate:
             self.Wg = nn.Linear(indim, d*h)
+
+        self.alpha = nn.Parameter(th.tensor(1.), requires_grad=True)
+        self.beta = nn.Parameter(th.tensor(1.), requires_grad=True)
         
 class SelfAttention(BaseAttentionLayer):
     def __init__(self, 
@@ -186,7 +189,7 @@ class SelfAttention(BaseAttentionLayer):
         att = att.reshape(-1, sl, self.d*self.h) # bs, sl, d*h
         resid = self.Wo(att)
         
-        output = self.shortcut(x) + self.drop(resid)
+        output = self.alpha*self.shortcut(x) + self.beta*self.drop(resid)
         
         other = [Q, K, V] + other + [resid] if return_full else None
         
@@ -240,6 +243,9 @@ class FFN(nn.Module):
         )
 
         self.drop = nn.Dropout(dropout) if dropout>0 else nn.Identity()
+
+        self.alpha = nn.Parameter(th.tensor(1.), requires_grad=True)
+        self.beta = nn.Parameter(th.tensor(1.), requires_grad=True)
     
     def forward(self, x, embed=None, return_full=False):
         out1 = self.W1(x)
@@ -248,7 +254,7 @@ class FFN(nn.Module):
         
         other = [out1, out3] if return_full else None
         
-        out = x + self.drop(out3)
+        out = self.alpha*x + self.beta*self.drop(out3)
 
         return {'out': out, 'other': other}
 

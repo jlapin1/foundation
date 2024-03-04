@@ -14,7 +14,7 @@ encoder_dict:
   use_charge: False
   use_mass: False
   bias: # 'pairwise' | 'regular' | False | None
-  dropout: 0.25
+  dropout: 0
   pw_mz_units: 64
   pw_run_units: 64
   pw_attention_ch: 32

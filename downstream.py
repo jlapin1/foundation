@@ -504,7 +504,7 @@ class DenovoBlDSObj(BaseDenovo):
 
         return enc_input, target
 
-#"""
+"""
 # Read downstream yaml
 with open("./yaml/downstream.yaml") as stream:
     config = yaml.safe_load(stream)
@@ -516,4 +516,4 @@ D = DenovoArDSObj(config)
 print("\n".join(D.TrainEval()[0]))
 np.savetxt("save/running_loss5.txt", D.running_loss, fmt='%.6f')
 np.savetxt("save/eval_stats5.csv", np.array(D.eval_stats), fmt='%.6f')
-#"""
+"""

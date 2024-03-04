@@ -27,4 +27,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Input dependent bias in self-attention"
+header: "alpha and beta parameters initzed fully open"
