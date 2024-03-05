@@ -49,6 +49,7 @@ class Decoder(nn.Module):
                  d=64,
                  h=4,
 				 gate=False,
+                 alphabet=False,
                  ffn_multiplier=1,
                  ce_units=256,
                  use_charge=True,
@@ -108,9 +109,15 @@ class Decoder(nn.Module):
             'h': h,
             'dropout': dropout,
             #'bias': bias,
-            #'gate': gate
+            #'gate': gate,
+            'alphabet': alphabet,
         }
-        ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier, 'dropout': dropout}
+        ffn_dict = {
+            'indim': running_units, 
+            'unit_multiplier': ffn_multiplier, 
+            'dropout': dropout,
+            'alphabet': alphabet,
+        }
         is_embed = True if (self.atleast1 and (prec_type=='inject')) else False
         self.main = nn.ModuleList([
             mp.TransBlock(

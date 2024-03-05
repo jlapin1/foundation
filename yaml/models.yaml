@@ -8,6 +8,7 @@ encoder_dict:
   att_d: 64
   att_h: 8
   gate: False
+  alphabet: False
   depth: 9
   ffn_multiplier: 4
   prenorm: True

@@ -89,14 +89,24 @@ class QKVAttention(nn.Module):
         return att, other
 
 class BaseAttentionLayer(nn.Module):
-    def __init__(self, indim, d, h, out_units=None, gate=False, dropout=0):
+    def __init__(
+        self, 
+        indim, 
+        d, 
+        h, 
+        out_units=None, 
+        gate=False, 
+        dropout=0,
+        alphabet=False
+    ):
         super(BaseAttentionLayer, self).__init__()
         self.indim = indim
         self.d = d
         self.h = h
         self.out_units = indim if out_units==None else out_units
         self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
-        
+        self.alphabet = alphabet
+
         self.attention_layer = QKVAttention(h, d)
         
         shape = (d*h, self.out_units)
@@ -114,9 +124,10 @@ class BaseAttentionLayer(nn.Module):
         self.gate = gate
         if gate:
             self.Wg = nn.Linear(indim, d*h)
-
-        self.alpha = nn.Parameter(th.tensor(1.), requires_grad=True)
-        self.beta = nn.Parameter(th.tensor(1.), requires_grad=True)
+        
+        if alphabet:
+            self.alpha = nn.Parameter(th.tensor(1.), requires_grad=True)
+            self.beta = nn.Parameter(th.tensor(1.), requires_grad=True)
         
 class SelfAttention(BaseAttentionLayer):
     def __init__(self, 
@@ -128,9 +139,13 @@ class SelfAttention(BaseAttentionLayer):
                  bias=False,
                  bias_in_units=None,
                  modulator=False,
-                 dropout=0
+                 dropout=0,
+                 alphabet=False
     ):
-        super().__init__(indim=indim, d=d, h=h, out_units=out_units, gate=gate, dropout=dropout)
+        super().__init__(
+            indim=indim, d=d, h=h, out_units=out_units, 
+            gate=gate, dropout=dropout, alphabet=alphabet
+        )
 
         self.qkv = nn.Linear(indim, 3*d*h, bias=True)
 
@@ -196,8 +211,11 @@ class SelfAttention(BaseAttentionLayer):
         return {'out': output, 'other': other}
 
 class CrossAttention(BaseAttentionLayer):
-    def __init__(self, indim, kvindim, d, h, out_units=None, dropout=0):
-        super().__init__(indim=indim, d=d, h=h, out_units=out_units, dropout=dropout)
+    def __init__(self, indim, kvindim, d, h, out_units=None, dropout=0, alphabet=False):
+        super().__init__(
+            indim=indim, d=d, h=h, out_units=out_units, 
+            dropout=dropout, alphabet=alphabet
+        )
         
         self.Wq = nn.Linear(indim, d*h, bias=False)
         self.Wkv = nn.Linear(kvindim, 2*d*h, bias=False)
@@ -229,12 +247,13 @@ class CrossAttention(BaseAttentionLayer):
         return self.shortcut(q_feats) + self.drop(resid)
 
 class FFN(nn.Module):
-    def __init__(self, indim, unit_multiplier=1, out_units=None, dropout=0):
+    def __init__(self, indim, unit_multiplier=1, out_units=None, dropout=0, alphabet=False):
         super(FFN, self).__init__()
         self.indim = indim
         self.mult = unit_multiplier
         self.out_units = indim if out_units==None else out_units
-        
+        self.alphabet = alphabet
+
         self.W1 = nn.Linear(indim, indim*self.mult)
         self.W2 = nn.Linear(indim*self.mult, self.out_units, bias=False)
         shape = self.W2.weight.shape
@@ -243,9 +262,10 @@ class FFN(nn.Module):
         )
 
         self.drop = nn.Dropout(dropout) if dropout>0 else nn.Identity()
-
-        self.alpha = nn.Parameter(th.tensor(1.), requires_grad=True)
-        self.beta = nn.Parameter(th.tensor(1.), requires_grad=True)
+        
+        if alphabet:
+            self.alpha = nn.Parameter(th.tensor(1.), requires_grad=True)
+            self.beta = nn.Parameter(th.tensor(1.), requires_grad=True)
     
     def forward(self, x, embed=None, return_full=False):
         out1 = self.W1(x)
@@ -254,7 +274,10 @@ class FFN(nn.Module):
         
         other = [out1, out3] if return_full else None
         
-        out = self.alpha*x + self.beta*self.drop(out3)
+        if self.alphabet:
+            out = self.alpha*x + self.beta*self.drop(out3)
+        else:
+            out = x + self.drop(out3)
 
         return {'out': out, 'other': other}
 

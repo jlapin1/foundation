@@ -50,6 +50,7 @@ class Encoder(nn.Module):
                  att_d=64, # attention qkv dimension units
                  att_h=4,  # attention qkv heads
                  gate=False, # input dependent gate following weights*V
+                 alphabet=False, # single parameters on residual and skip connections
                  ffn_multiplier=4, # multiply inp units for 1st FFN transform
                  prenorm=True, # normalization before attention/ffn layers
                  norm_type='layer', # normalization type
@@ -137,8 +138,14 @@ class Encoder(nn.Module):
             'modulator': False,
             'gate': gate,
             'dropout': dropout,
+            'alphabet': alphabet,
         }
-        ffn_dict = {'indim': running_units, 'unit_multiplier': ffn_multiplier}
+        ffn_dict = {
+            'indim': running_units, 
+            'unit_multiplier': ffn_multiplier,
+            'dropout': dropout,
+            'alphabet': alphabet,
+        }
         is_embed = True if self.atleast1 else False
         self.main = nn.ModuleList([
             mp.TransBlock(

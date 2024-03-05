@@ -50,4 +50,5 @@ denovo_ar:
     penultimate_units:
     pool: False
     dropout: 0.25
+    alphabet: False
 
