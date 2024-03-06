@@ -204,7 +204,10 @@ class SelfAttention(BaseAttentionLayer):
         att = att.reshape(-1, sl, self.d*self.h) # bs, sl, d*h
         resid = self.Wo(att)
         
-        output = self.alpha*self.shortcut(x) + self.beta*self.drop(resid)
+        if self.alphabet:
+            output = self.alpha*self.shortcut(x) + self.beta*self.drop(resid)
+        else:
+            output = self.shortcut(x) + self.drop(resid)
         
         other = [Q, K, V] + other + [resid] if return_full else None
         
@@ -287,9 +290,8 @@ class TransBlock(nn.Module):
                  ffn_dict,
                  norm_type='layer',
                  prenorm=True,
-                 is_embed=False,
+                 embed_type=None, # preembed | ffnembed | normembed | None
                  embed_indim=256,
-                 preembed=True,
                  is_cross=False,
                  kvindim=256
     ):
@@ -297,15 +299,31 @@ class TransBlock(nn.Module):
         self.norm_type = norm_type
         self.mult = ffn_dict['unit_multiplier']
         self.prenorm = prenorm
-        self.is_embed = is_embed
-        self.preembed = preembed
+        self.embed_type = embed_type
         self.is_cross = is_cross
-        
-        if preembed: self.alpha = nn.Parameter(th.tensor(0.1), requires_grad=True)
+
         norm = get_norm_type(norm_type)
+
+        # How to embed, if at all, precursor level information (charge, energy, etc.)
+        elementwise_affine = True
+        if embed_type is not None:
+            units = attention_dict['indim']
+            if embed_type == 'preembed': 
+                self.alpha = nn.Parameter(th.tensor(0.1), requires_grad=True)
+                units = units
+            elif embed_type == 'ffnembed':
+                units = units * self.mult
+            elif embed_type == 'normembed':
+                units = 2 * units
+                elementwise_affine = False
+            else:
+                raise NotImplementedError("Choose a real embedding option")
         
+            assert type(embed_indim) == int
+            self.embed = nn.Linear(embed_indim, units)
+            
         indim = attention_dict['indim']
-        self.norm1 = norm(indim)
+        self.norm1 = norm(indim, elementwise_affine=elementwise_affine)
         self.norm2 = norm(ffn_dict['indim'])
         self.selfattention = SelfAttention(**attention_dict)
         if is_cross:
@@ -317,10 +335,6 @@ class TransBlock(nn.Module):
             self.crossattention = CrossAttention(**cross_dict)
         self.ffn = FFN(**ffn_dict)
         
-        if self.is_embed:
-            assert type(embed_indim) == int
-            units = indim if self.preembed else indim*self.mult
-            self.embed = nn.Linear(embed_indim, units)
         
     def forward(self, 
                 x, 
@@ -331,19 +345,47 @@ class TransBlock(nn.Module):
                 biastsr=None,
                 return_full=False
     ):
+        bs, sl, units = x.shape
         selfmask = seq_mask if self.is_cross else spec_mask
-        Emb = self.embed(embed_feats)[:,None,:] if self.is_embed else 0
         
-        out = x + self.alpha*Emb if self.preembed else x
-        out = self.norm1(out) if self.prenorm else out
+        out = x
+        # Embed precursor level information (?)
+        if self.embed_type is not None:
+            Emb = self.embed(embed_feats)[:,None,:]
+    
+            if self.embed_type == 'preembed':
+                out = out + self.alpha*Emb
+                if self.prenorm: out = self.norm1(out)
+            elif self.embed_type == 'ffnembed':
+                out = self.norm1(out) if self.prenorm else out
+            elif self.embed_type == 'normembed':
+                weight, bias = Emb.split(units, -1)
+                weight = 1 + weight
+                bias = bias
+                if self.prenorm: out = weight * self.norm1(out) + bias
+        else:
+            if self.prenorm:
+                out = self.norm1(out)
+            Emb = None
+        
+        # Self attention
         outsa = self.selfattention(out, selfmask, biastsr, return_full=return_full)
         out = outsa['out']
+        if not self.prenorm:
+            out = self.norm1(out)
+            if self.embed_type == 'normembed':
+                out = weight * out + bias
+        
+        # Cross attention
         if self.is_cross:
             out = self.crossnorm(out) if self.prenorm else out
             out = self.crossattention(out, kv_feats, spec_mask)
             out = out if self.prenorm else self.crossnorm(out)
-        out = self.norm2(out) if self.prenorm else self.norm1(out)
-        outffn = self.ffn(out, None, return_full=return_full) if self.preembed else self.ffn(out, Emb, return_full=return_full)
+        
+        # FFN
+        if self.prenorm: out = self.norm2(out)
+        if self.embed_type != 'ffnembed': Emb = None
+        outffn = self.ffn(out, Emb, return_full=return_full)
         out = outffn['out']
         out = out if self.prenorm else self.norm2(out)
         

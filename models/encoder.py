@@ -54,7 +54,7 @@ class Encoder(nn.Module):
                  ffn_multiplier=4, # multiply inp units for 1st FFN transform
                  prenorm=True, # normalization before attention/ffn layers
                  norm_type='layer', # normalization type
-                 preembed=True, # embed/add charge/energy/mass before FFN
+                 prec_type=None, # inject_pre | inject_ffn | inject_norm | None
                  depth=9, # number of transblocks
                  # Pairwise options
                  bias=False, # use pairwise mz tensor to create SA-bias
@@ -86,7 +86,7 @@ class Encoder(nn.Module):
         self.depth = depth
         self.prenorm = prenorm
         self.norm_type = norm_type
-        self.preembed = preembed
+        self.prec_type = prec_type
         self.its = recycling_its
         self.device = device
         
@@ -118,6 +118,14 @@ class Encoder(nn.Module):
         # charge/energy/mass embedding transformation
         self.atleast1 = use_charge or use_energy or use_mass
         if self.atleast1:
+            if prec_type == 'inject_pre':
+                prec_type = 'preembed'
+            elif prec_type == 'inject_ffn':
+                prec_type = 'ffnembed'
+            elif prec_type == 'inject_norm':
+                prec_type = 'normembed'
+            else:
+                raise NotImplementedError("Choose real prec_type")
             num = sum([use_charge, use_energy, use_mass])
             self.ce_emb = nn.Sequential(
                 nn.Linear(ce_units*num, ce_units), nn.SiLU()
@@ -146,16 +154,17 @@ class Encoder(nn.Module):
             'dropout': dropout,
             'alphabet': alphabet,
         }
-        is_embed = True if self.atleast1 else False
+        if not self.atleast1 and prec_type is not None: 
+            prec_type = None
+            print("No precursors info used in model. Setting prec_type to None")
         self.main = nn.ModuleList([
             mp.TransBlock(
                 attention_dict, 
                 ffn_dict, 
-                norm_type, 
-                prenorm, 
-                is_embed, 
-                ce_units,
-                preembed
+                norm_type=norm_type, 
+                prenorm=prenorm, 
+                embed_type=prec_type, 
+                embed_indim=ce_units,
             ) 
             for _ in range(depth)
         ])

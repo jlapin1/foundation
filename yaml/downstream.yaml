@@ -43,7 +43,7 @@ denovo_ar:
     use_charge: True
     use_energy: False
     use_mass: True
-    prec_type: 'inject'
+    prec_type: 'inject_pre'
     norm_type: 'layer'
     prenorm: True
     preembed: True

@@ -34,6 +34,10 @@ def init_decoder_weights(module):
         module.W1.bias = I.zeros_(module.W1.bias)
         module.W2.weight = I.normal_(module.W2.weight, 0.0, (1/3)*(module.indim*module.mult)**-0.5)
         #module.W2.weight = I.xavier_uniform_(module.W2.weight)
+    elif isinstance(module, mp.TransBlock):
+        if hasattr(module, 'embed') and module.embed_type == 'normembed':
+            module.embed.weight = I.zeros_(module.embed.weight)
+            module.embed.bias = I.zeros_(module.embed.bias)
     elif isinstance(module, nn.Linear):
         module.weight = I.xavier_uniform_(module.weight)
         if module.bias is not None:
@@ -55,7 +59,7 @@ class Decoder(nn.Module):
                  use_charge=True,
                  use_energy=False,
                  use_mass=True,
-				 prec_type='inject', # inject | pretoken | posttoken
+				 prec_type='inject_pre', # inject_pre | inject_ffn | inject_norm | pretoken | posttoken | None
                  norm_type='layer',
                  prenorm=True,
                  preembed=True,
@@ -89,13 +93,21 @@ class Decoder(nn.Module):
         # charge/energy embedding transformation
         self.atleast1 = use_charge or use_energy or use_mass
         if self.atleast1:
-            assert prec_type in ['inject', 'pretoken', 'posttoken']
+            assert prec_type in ['inject_pre', 'inject_ffn', 'inject_norm', 'pretoken', 'posttoken']
+            self.added_token = True if 'token' in prec_type else False
             num = sum([use_charge, use_energy, use_mass])
-            if prec_type == 'inject':
+            if prec_type[:6] == 'inject':
+                if prec_type == 'inject_pre': 
+                    prec_type = 'preembed'
+                elif prec_type == 'inject_ffn':
+                    prec_type = 'ffnembed'
+                elif prec_type == 'inject_norm':
+                    prec_type = 'normembed'
                 self.ce_emb = nn.Sequential(
                     nn.Linear(ce_units*num, self.ce_units), nn.SiLU()
                 )
             else:
+                prec_type = None # token types should not be input to TransBlock
                 self.ce_emb = nn.Sequential(
                     nn.Linear(ce_units*num, self.run_units)
                 )
@@ -118,16 +130,17 @@ class Decoder(nn.Module):
             'dropout': dropout,
             'alphabet': alphabet,
         }
-        is_embed = True if (self.atleast1 and (prec_type=='inject')) else False
+        if not self.atleast1 and prec_type is not None: 
+            prec_type = None
+            print("No precursors info used in model. Setting prec_type to None")
         self.main = nn.ModuleList([
             mp.TransBlock(
                 attention_dict, 
                 ffn_dict, 
-                norm_type, 
-                prenorm, 
-                is_embed,
-                ce_units,
-                preembed, 
+                norm_type=norm_type, 
+                prenorm=prenorm, 
+                embed_type=prec_type,
+                embed_indim=ce_units,
                 is_cross=True,
                 kvindim=kv_indim
             ) 
@@ -254,8 +267,8 @@ class Decoder(nn.Module):
             spec_mask=specmask, seq_mask=seqmask
         )
         
-        if self.atleast1:
-            out = out if self.prec_type=='inject' else (out[:,1:] if self.prec_type=='pretoken' else out[:,:-1])
+        if self.atleast1 and self.added_token:
+            out = out[:,1:] if self.prec_type=='pretoken' else out[:,:-1]
         out = self.final(out)
         if self.pool:
             out = out.mean(dim=1)
