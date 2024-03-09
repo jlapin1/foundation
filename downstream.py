@@ -514,6 +514,6 @@ print("Denovo sequencing")
 D = DenovoArDSObj(config)
 #out = D.evaluation(dset='val')
 print("\n".join(D.TrainEval()[0]))
-np.savetxt("save/running_loss.txt", D.running_loss, fmt='%.6f')
-np.savetxt("save/eval_stats.csv", np.array(D.eval_stats), fmt='%.6f')
+np.savetxt("save/running_loss_norm.txt", D.running_loss, fmt='%.6f')
+np.savetxt("save/eval_stats_norm.csv", np.array(D.eval_stats), fmt='%.6f')
 #"""
