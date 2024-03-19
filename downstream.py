@@ -6,6 +6,7 @@ import torch as th
 import yaml
 import path
 from loaders.loader_parquet import LoaderDS
+from loaders.loader_hf import LoaderHF
 import numpy as np
 from models.encoder import Encoder
 from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
@@ -187,19 +188,13 @@ class DownstreamObj:
     def train_epoch(self, SeqInts=False):
         
         bs = self.config['batch_size']
-        total_spectra = len(self.dl.inds['train'])
-        #spe = self.config['steps_per_epoch']
-        spe = total_spectra // bs
-        spe += 1 if (total_spectra % bs == 0) else 0
+        all_loss = []
         running_loss = deque(maxlen=50)
+        running_time = deque(maxlen=50)
         
-        T = tqdm(range(spe))
-        #perm = np.random.choice(self.dl.inds['train'], spe*bs, replace=True)
-        #np.random.seed(100)
-        perm = np.random.permutation(self.dl.inds['train'])
-        for step in T:
-            inds = perm[step*bs : (step+1)*bs]
-            batch = self.dl.load_batch(inds, 'train', SeqInts=SeqInts)
+        epoch_start = time()
+        for step, batch in enumerate(self.dl.dl['train']):
+            step_start = time()
         
             # Are we training the encoder? Two conditions must be met.
             train_encoder = (
@@ -213,13 +208,18 @@ class DownstreamObj:
             loss = self.train_step(batch, train_encoder)
             self.global_step += 1
             running_loss.append(loss.detach().cpu().numpy())
-            
-            #if step%50==0:
+            running_time.append(time()-step_start)
+
+            #if step%10==0:
             rlm = np.mean(running_loss)
-            T.set_description(
-                "Running Loss: %.6f"%rlm, refresh=True
-            )
-            self.running_loss.append(rlm)
+            rtm = np.mean(running_time)
+            print("\rTraining step %d  Running Loss: %.6f (%.2f s)"%(step+1, rlm, rtm), end='')
+            
+            all_loss.append(rlm)
+        
+        print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
+        
+        return all_loss
 
 class BaseDenovo(DownstreamObj):
     def __init__(self, 
@@ -245,9 +245,9 @@ class BaseDenovo(DownstreamObj):
         func = self.head.predict_sequence if self.ar else self.call
         
         # counters
-        totsz = self.dl.dfs[dset].shape[0]
-        steps = totsz // self.config['batch_size']
-        steps += 0 if (totsz % self.config['batch_size'])==0 else 1
+        #totsz = self.dl.dfs[dset].shape[0]
+        #steps = totsz // self.config['batch_size']
+        #steps += 0 if (totsz % self.config['batch_size'])==0 else 1
         
         # losses
         out = {'ce': 0, 'old_recall': 0, 'recall': 0, 'precision': 0, 'auprc': 0}
@@ -259,11 +259,8 @@ class BaseDenovo(DownstreamObj):
         
         self.encoder.eval()
         self.head.eval()
-        for step in tqdm(range(steps)):
-            first = step*self.config['batch_size']
-            last = np.minimum((step+1)*self.config['batch_size'], totsz)
-            batch_inds = np.arange(first, last, 1)
-            batch = self.dl.load_batch(batch_inds, dset=dset, SeqInts=True)
+        for i, batch in enumerate(self.dl.dl['val']):
+            print("\rEvaluation step %d"%(i+1), end='')
             batch = U.Dict2dev(batch, device)
             # Fork in the code for the 2 types of denovo models I created
             with th.no_grad():
@@ -293,11 +290,14 @@ class BaseDenovo(DownstreamObj):
             for metric in roc_stats.keys():
                 tots[metric] += roc_stats[metric]
         
+        steps = i+1
+        totsz = self.config['loader_hf']['batch_size']*steps
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
         out['old_recall'] = out['old_recall'] / old_recall_sum
         out['auprc'] = out['auprc'] / steps
         for metric in roc_stats.keys():
             out[metric] = tots[metric] /  steps
+        print()
 
         return out
 
@@ -306,8 +306,8 @@ class BaseDenovo(DownstreamObj):
         lines = []
         highscore = 0
         for i in range(self.config['epochs']):
-            
-            self.train_epoch(SeqInts=True) # Notice: SeqInts is true
+            self.dl.ds['train'].set_epoch(i)
+            all_loss = self.train_epoch(SeqInts=True) # Notice: SeqInts is true
             
             out = self.evaluation(dset=eval_dset)
             
@@ -328,6 +328,12 @@ class BaseDenovo(DownstreamObj):
                     self.save_encoder(self.svdir+'encoder.wts')
             
             self.eval_stats.append(list(out.values()))
+            
+            # Save data
+            np.savetxt("save/eval_stats.txt", np.array(self.eval_stats))
+            if os.path.exists("save/all_loss.txt"):
+                all_loss = np.append(np.loadtxt("all_loss.txt"), all_loss)
+            np.savetxt("save/all_loss_txt", all_loss, fmt='%d')
         
         return lines, highline
 
@@ -340,7 +346,7 @@ class DenovoArDSObj(BaseDenovo):
         )
 
         # Dataloader
-        self.dl = LoaderDS(self.config['loader'])
+        self.dl = LoaderHF(self.config['loader_hf'])
         self.predcats = len(self.dl.amod_dic)
 
         # Head model
@@ -371,48 +377,11 @@ class DenovoArDSObj(BaseDenovo):
 
         return intseq
     
-    """def inptarg(self, batch, full_seqint=False):
-        
-        bs, sl = batch['seqint'].shape
-        enc_input = self.encinp(batch, return_mask=True)
-        
-        # Take the variable batch['seqint'] and add a start token to the 
-        # beginning and null on the end
-        intseq = self.head.prepend_startok(batch['seqint'][...,:-1])
-        
-        # Find the indices first null tokens so that when you choose random
-        # token you avoid trivial trailing null tokens (beyond final null)
-        nonnull = (intseq != self.head.inpdict['X']).type(th.int32).sum(1)
-        
-        # Choose random tokens to predict
-        # - the values of inds will be final non-hidden value in decoder input
-        # - batch['seqint'](inds) will be the target for decoder output
-        # - must use combination of rand() and round() because int32 is not
-        #   yet implemented when feeding vectors into low/high arguments
-        uniform = th.rand(bs, device=nonnull.device) * nonnull
-        inds = uniform.floor().type(th.int32)
-        
-        # Fill with hidden tokens to the end
-        # - this will be the decoder's input
-        dec_inp = self.head.fill2c(intseq, inds, '<h>', output=False)
-        
-        # Indices of chosen predict tokens
-        # - save for LossFunction
-        inds_ = [th.arange(inds.shape[0], dtype=th.int32), inds]
-        self.inds = inds_
-
-        # Target is the actual (intseq) identity of the chosen predict indices
-        targ = (
-            batch['seqint'] if full_seqint else batch['seqint'][inds_]
-        ).type(th.int64)
-
-        return enc_input, dec_inp, targ"""
-
     def inptarg(self, batch):
         
-        bs, sl = batch['seqint'].shape
-        dec_input = deepcopy(batch['seqint'])
-        target = deepcopy(batch['seqint'])
+        bs, sl = batch['intseq'].shape
+        dec_input = deepcopy(batch['intseq'])
+        target = deepcopy(batch['intseq'])
         
         enc_input = self.encinp(batch, return_mask=True)
 
@@ -425,13 +394,6 @@ class DenovoArDSObj(BaseDenovo):
         loss_mask = loss_mask == 0
 
         return enc_input, dec_input, target, loss_mask
-
-    """def LossFunction(self, target, decout):
-        targ_one_hot = F.one_hot(target, self.predcats).type(th.float32)
-        logits = decout[self.inds]
-        loss = F.cross_entropy(logits, targ_one_hot)
-
-        return loss"""
 
     def LossFunction(self, target, prediction, loss_mask):
         targ_one_hot = F.one_hot(target, self.predcats).type(th.float32)
@@ -514,6 +476,6 @@ print("Denovo sequencing")
 D = DenovoArDSObj(config)
 #out = D.evaluation(dset='val')
 print("\n".join(D.TrainEval()[0]))
-np.savetxt("save/running_loss_norm.txt", D.running_loss, fmt='%.6f')
-np.savetxt("save/eval_stats_norm.csv", np.array(D.eval_stats), fmt='%.6f')
+#np.savetxt("save/running_loss_norm.txt", D.running_loss, fmt='%.6f')
+#np.savetxt("save/eval_stats_norm.csv", np.array(D.eval_stats), fmt='%.6f')
 #"""

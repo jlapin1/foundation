@@ -13,6 +13,17 @@ encoder_start: 0
 save_weights: False
 debug: False
 # Loader options
+scratch:
+  use: True
+  path: /media/storage/scratch/
+loader_hf:
+  dictionary_path: /cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt
+  dataset_path: /cmnfs/data/proteomics/foundational_model/MassiveKB/mkb.parquet
+  split: 10000
+  pep_length: [0, 30]
+  top_pks: 100
+  buffer_size: 10000
+  batch_size: 100
 loader:
   top_pks: 100
   pep_length: [0, 30]
@@ -49,6 +60,6 @@ denovo_ar:
     preembed: True
     penultimate_units:
     pool: False
-    dropout: 0.25
+    dropout: 0
     alphabet: False
 
