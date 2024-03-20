@@ -185,10 +185,9 @@ class DownstreamObj:
 
         return loss
 
-    def train_epoch(self, SeqInts=False):
+    def train_epoch(self, svfreq=10000):
         
         bs = self.config['batch_size']
-        all_loss = []
         running_loss = deque(maxlen=50)
         running_time = deque(maxlen=50)
         
@@ -215,11 +214,20 @@ class DownstreamObj:
             rtm = np.mean(running_time)
             print("\rTraining step %d  Running Loss: %.6f (%.2f s)"%(step+1, rlm, rtm), end='')
             
-            all_loss.append(rlm)
+            self.running_loss.append(rlm)
+            if (step+1) % svfreq == 0:
+                self.savetxt(self.running_loss)
+                self.running_loss = []
         
         print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
         
-        return all_loss
+    def savetxt(self, train_loss=True, eval_stats=None, svdir="save/"):
+        if eval_stats is not None:
+            np.savetxt(svdir+"eval_stats.txt", np.array(eval_stats), fmt='%.6f')
+        if train_loss is not None:
+            if os.path.exists(svdir+"train_loss.txt"):
+                train_loss = np.append(np.loadtxt(svdir+"train_loss.txt"), train_loss)
+            np.savetxt(svdir+"train_loss.txt", train_loss, fmt="%.6f")
 
 class BaseDenovo(DownstreamObj):
     def __init__(self, 
@@ -307,7 +315,7 @@ class BaseDenovo(DownstreamObj):
         highscore = 0
         for i in range(self.config['epochs']):
             self.dl.ds['train'].set_epoch(i)
-            all_loss = self.train_epoch(SeqInts=True) # Notice: SeqInts is true
+            self.train_epoch(SeqInts=True) # Notice: SeqInts is true
             
             out = self.evaluation(dset=eval_dset)
             
@@ -330,10 +338,7 @@ class BaseDenovo(DownstreamObj):
             self.eval_stats.append(list(out.values()))
             
             # Save data
-            np.savetxt("save/eval_stats.txt", np.array(self.eval_stats))
-            if os.path.exists("save/all_loss.txt"):
-                all_loss = np.append(np.loadtxt("all_loss.txt"), all_loss)
-            np.savetxt("save/all_loss_txt", all_loss, fmt='%d')
+            self.savetxt(np.array(self.eval_stats))
         
         return lines, highline
 
