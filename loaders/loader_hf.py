@@ -1,6 +1,7 @@
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 import torch as th
+import os
 
 def map_fn(example, dic, top=100, max_seq=50):
     ab = th.tensor(example['ab'])
@@ -46,71 +47,89 @@ def collate_fn(batch_list):
     }
 
 class LoaderHF:
-    def __init__(self, config, kwargs):
-        self.config = config
+    def __init__(self, 
+        dataset_path: dict,
+        dictionary_path: str,
+        top_pks: int=100,
+        batch_size: int=100,
+        num_workers: int=0,
+        **kwargs
+    ):
 
-        # Dictionary
-        self.amod_dic = {
-            line.split()[0]:m for m, line in enumerate(open(config['dictionary_path']))
-        }
-        self.amod_dic['X'] = len(self.amod_dic)
-        """
         # Scratch directory
         if 'scratch' in kwargs.keys():
             if kwargs['scratch']['use']:
                 pth = kwargs['scratch']['path']
                 if os.path.exists(pth):
-                    self.fn2full = {
-                        key: pth + self.fn2full[key].split("/")[-1]  
-                        for key in self.fn2full.keys()
+                    # Change the dataset paths
+                    dataset_path = {
+                        key: pth + dataset_path[key].split("/")[-1]  
+                        for key in dataset_path
                     }
                 else:
                     print("Scratch directory not found. Using original paths.")
-        """
+
+        # Dictionary
+        self.amod_dic = {
+            line.split()[0]:m for m, line in enumerate(open(dictionary_path))
+        }
+        self.amod_dic['X'] = len(self.amod_dic)
+        
         # Dataset
         dataset = load_dataset(
             'parquet',
-            data_files=config['dataset_path'],
-            split='train',
+            data_files=dataset_path,
             streaming=True
         )
+
         # Filter for length
-        dataset = dataset.filter(
-            lambda example: 
-            (len(example['sequence']) >= config['pep_length'][0]) &
-            (len(example['sequence']) <= config['pep_length'][1])
-        )
+        if 'pep_length' in kwargs.keys():
+            dataset = dataset.filter(
+                lambda example: 
+                (len(example['sequence']) >= kwargs['pep_length'][0]) &
+                (len(example['sequence']) <= kwargs['pep_length'][1])
+            )
+        # Filter for charge
+        if 'charge' in kwargs.keys():
+            dataset = dataset.filter(
+                lambda example:
+                (example['charge'] >= kwargs['charge'][0]) &
+                (example['charge'] <= kwargs['charge'][1])
+            )
+
         # Map to format outputs
         dataset = dataset.map(
             lambda example: 
             map_fn(
                 example,
                 self.amod_dic,
-                top=config['top_pks'], 
-                max_seq=config['pep_length'][1]
+                top=top_pks, 
+                max_seq=kwargs['pep_length'][1]
             ), 
             remove_columns=['name', 'sequence']
         )
-
-        # Split dataset
-        val_dataset = dataset.take(config['split'])
-        train_dataset = dataset.skip(config['split']).shuffle(buffer_size=config['buffer_size'])
-        self.ds = {
-            'train': train_dataset,
-            'val': val_dataset,
-        }
+        
+        # Shuffle the dataset
+        if 'buffer_size' in kwargs.keys():
+            dataset['train'] = dataset['train'].shuffle(buffer_size=kwargs['buffer_size'])
+        else:
+            dataset['train'] = dataset['train'].shuffle()
+        
+        self.dataset = dataset
 
         # Dataloaders
-        self.dl = {
-            'train': self.build_dataloader(train_dataset, config['batch_size']),
-            'val': self.build_dataloader(val_dataset, config['batch_size'])
+        num_workers = min(self.dataset['train'].n_shards, num_workers)
+        self.dataloader = {
+            'train': self.build_dataloader(dataset['train'], batch_size, num_workers),
+            'val':   self.build_dataloader(dataset['val']  , batch_size, 0),
+            'test':  self.build_dataloader(dataset['test'] , batch_size, 0),
         }
 
-    def build_dataloader(self, dataset, batch_size):
+    def build_dataloader(self, dataset, batch_size, num_workers):
         return DataLoader(
             dataset,
             batch_size=batch_size,
-            num_workers=0,
+            num_workers=num_workers,
             collate_fn=collate_fn
         )
 

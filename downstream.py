@@ -189,12 +189,14 @@ class DownstreamObj:
         
         bs = self.config['batch_size']
         running_loss = deque(maxlen=50)
-        running_time = deque(maxlen=50)
+        running_time = [deque(maxlen=50) for _ in range(5)];running_time[-1].append(0)
         
         epoch_start = time()
-        for step, batch in enumerate(self.dl.dl['train']):
+        step_end=epoch_start;split1=epoch_start;split2=epoch_start;split3=epoch_start
+        for step, batch in enumerate(self.data.dataloader['train']):
             step_start = time()
-        
+            running_time[0].append(step_start - step_end)
+
             # Are we training the encoder? Two conditions must be met.
             train_encoder = (
                 True 
@@ -206,18 +208,27 @@ class DownstreamObj:
             ) # boolean argument into train_step
             loss = self.train_step(batch, train_encoder)
             self.global_step += 1
-            running_loss.append(loss.detach().cpu().numpy())
-            running_time.append(time()-step_start)
-
-            #if step%10==0:
+            split1 = time()
+            
+            running_loss.append(loss.detach().cpu())
+            split2 = time()
+            
             rlm = np.mean(running_loss)
-            rtm = np.mean(running_time)
-            print("\rTraining step %d  Running Loss: %.6f (%.2f s)"%(step+1, rlm, rtm), end='')
+            rtm = np.mean(running_time[-1]) #[np.mean(m) if len(m)>0 else 0 for m in running_time]
+            split3 = time()
+            print("\rTraining step %d  Running Loss: %.6f (%.3f s)"%(step+1, rlm, rtm), end='')
             
             self.running_loss.append(rlm)
             if (step+1) % svfreq == 0:
                 self.savetxt(self.running_loss)
                 self.running_loss = []
+
+            running_time[4].append(time() - step_end)
+            step_end = time()
+            
+            #running_time[1].append(split1 - step_start)
+            #running_time[2].append(split2 - split1)
+            #running_time[3].append(split3 - split2)
         
         print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
         
@@ -267,7 +278,7 @@ class BaseDenovo(DownstreamObj):
         
         self.encoder.eval()
         self.head.eval()
-        for i, batch in enumerate(self.dl.dl['val']):
+        for i, batch in enumerate(self.data.dataloader[dset]):
             print("\rEvaluation step %d"%(i+1), end='')
             batch = U.Dict2dev(batch, device)
             # Fork in the code for the 2 types of denovo models I created
@@ -314,8 +325,8 @@ class BaseDenovo(DownstreamObj):
         lines = []
         highscore = 0
         for i in range(self.config['epochs']):
-            self.dl.ds['train'].set_epoch(i)
-            self.train_epoch(SeqInts=True) # Notice: SeqInts is true
+            self.data.dataset['train'].set_epoch(i)
+            self.train_epoch()
             
             out = self.evaluation(dset=eval_dset)
             
@@ -351,15 +362,15 @@ class DenovoArDSObj(BaseDenovo):
         )
 
         # Dataloader
-        self.dl = LoaderHF(self.config['loader_hf'])
-        self.predcats = len(self.dl.amod_dic)
+        self.data = LoaderHF(**self.config['loader_hf'])
+        self.predcats = len(self.data.amod_dic)
 
         # Head model
         head_dict = self.config[task]['head_dict']
         head_dict['kv_indim'] = self.encoder.run_units
         self.config['sl'] = self.config['loader']['pep_length'][1]
         self.head = DenovoDecoder(
-            token_dict=self.dl.amod_dic, dec_config=head_dict, 
+            token_dict=self.data.amod_dic, dec_config=head_dict, 
             encoder=self.encoder # encoder is set by inherited class
         )
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
@@ -444,43 +455,15 @@ class DenovoArDSObj(BaseDenovo):
         
         return loss
 
-class DenovoBlDSObj(BaseDenovo):
-    def __init__(self, config, base_model=None, svdir='./dswts/'):
-        task='denovo_bl'
-        super().__init__(
-            config=config, task=task, base_model=base_model, svdir=svdir
-        )
 
-        head_dict = self.config[task]['head_dict']  
-        # Dataloader
-        self.dl = LoaderDS(self.config['loader'])
-        
-        # Head model
-        # Place values into head dictionary that can't be determined beforehand 
-        self.config['sl'] = self.config['loader']['pep_length'][1]# + 1
-        head_dict['final_seq_len'] = self.config['sl']
-        self.predcats = len(self.dl.amod_dic)
-        head_dict['final_units'] = len(self.dl.amod_dic)
-        self.head = SequenceHead(**head_dict)
-        
-        self.opt_head = th.optim.Adam(self.head.parameters(), config['lr'])
+if __name__ == '__main__':
 
-    def inptarg(self, batch):
-        enc_input = self.encinp(batch, return_mask=True)
-        target = batch['seqint'].type(th.int64)
+    # Read downstream yaml
+    with open("./yaml/downstream.yaml") as stream:
+        config = yaml.safe_load(stream)
 
-        return enc_input, target
-
-#"""
-# Read downstream yaml
-with open("./yaml/downstream.yaml") as stream:
-    config = yaml.safe_load(stream)
-
-# Downstream object
-print("Denovo sequencing")
-D = DenovoArDSObj(config)
-#out = D.evaluation(dset='val')
-print("\n".join(D.TrainEval()[0]))
-#np.savetxt("save/running_loss_norm.txt", D.running_loss, fmt='%.6f')
-#np.savetxt("save/eval_stats_norm.csv", np.array(D.eval_stats), fmt='%.6f')
-#"""
+    # Downstream object
+    print("Denovo sequencing")
+    D = DenovoArDSObj(config)
+    #out = D.evaluation(dset='val')
+    print("\n".join(D.TrainEval()[0]))

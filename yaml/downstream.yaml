@@ -1,6 +1,6 @@
 batch_size: 100
-lr: 0.0001
-lr_warmup: True
+lr: 0.00005
+lr_warmup: False
 lr_warmup_start: 1.0e-7
 lr_warmup_end: 2.0e-4
 lr_warmup_steps: 20000
@@ -13,17 +13,20 @@ encoder_start: 0
 save_weights: False
 debug: False
 # Loader options
-scratch:
-  use: True
-  path: /media/storage/scratch/
 loader_hf:
+  dataset_path: 
+    train: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*train*
+    val: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*val*
+    test: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*test*
   dictionary_path: /cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt
-  dataset_path: /cmnfs/data/proteomics/foundational_model/MassiveKB/mkb.parquet
-  split: 10000
   pep_length: [0, 30]
   top_pks: 100
   buffer_size: 10000
   batch_size: 100
+  num_workers: 16
+  scratch:
+    use: True
+    path: /media/storage/scratch/mkb/
 loader:
   top_pks: 100
   pep_length: [0, 30]
