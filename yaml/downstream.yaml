@@ -16,14 +16,14 @@ debug: False
 loader_hf:
   dataset_path: 
     train: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*train*
-    val: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*val*
+    val: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/instanovo_val.parquet
     test: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*test*
   dictionary_path: /cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt
   pep_length: [0, 30]
   top_pks: 100
   buffer_size: 10000
   batch_size: 100
-  num_workers: 16
+  num_workers: 8
   scratch:
     use: True
     path: /media/storage/scratch/mkb/

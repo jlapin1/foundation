@@ -229,7 +229,7 @@ class DownstreamObj:
             #running_time[1].append(split1 - step_start)
             #running_time[2].append(split2 - split1)
             #running_time[3].append(split3 - split2)
-        
+
         print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
         
     def savetxt(self, train_loss=True, eval_stats=None, svdir="save/"):
@@ -283,17 +283,12 @@ class BaseDenovo(DownstreamObj):
             batch = U.Dict2dev(batch, device)
             # Fork in the code for the 2 types of denovo models I created
             with th.no_grad():
-                if self.ar:
-                    enc_input, seqint, target, loss_mask = self.inptarg(
-                        batch, #full_seqint=True,
-                    )
-                    embedding = self.encoder(**enc_input)
-                    prediction, probs = self.head.predict_sequence(embedding, batch)
-                    pred = probs.transpose(-1,-2)
-                else:
-                    enc_input, target = self.inptarg(batch)
-                    pred = func(enc_input) # logits
-                    prediction = pred.argmax(-1).type(th.int32) # bs, sl
+                enc_input, seqint, target, loss_mask = self.inptarg(
+                    batch, #full_seqint=True,
+                )
+                embedding = self.encoder(**enc_input)
+                prediction, probs = self.head.predict_sequence(embedding, batch)
+                pred = probs.transpose(-1,-2)
             
             out['ce'] += (
                 F.cross_entropy(pred, target, reduction='none')[loss_mask].sum()
@@ -316,7 +311,6 @@ class BaseDenovo(DownstreamObj):
         out['auprc'] = out['auprc'] / steps
         for metric in roc_stats.keys():
             out[metric] = tots[metric] /  steps
-        print()
 
         return out
 
@@ -338,7 +332,7 @@ class BaseDenovo(DownstreamObj):
                 highscore = out['recall']
             line += " (%.1f s)"%(time()-start_time)
             lines.append(line)
-            print(line)
+            print("\r"+line)
 
 
             if self.config['save_weights']:
@@ -455,7 +449,6 @@ class DenovoArDSObj(BaseDenovo):
         
         return loss
 
-
 if __name__ == '__main__':
 
     # Read downstream yaml
@@ -466,4 +459,4 @@ if __name__ == '__main__':
     print("Denovo sequencing")
     D = DenovoArDSObj(config)
     #out = D.evaluation(dset='val')
-    print("\n".join(D.TrainEval()[0]))
+    print(D.TrainEval()[-1])

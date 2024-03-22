@@ -150,6 +150,55 @@ def partition_seq(seq, collect_mods=False):
 
         return output
 
+def partition_modified_sequence(modseq):
+    sequence = []
+    p = 0
+    while p < len(modseq):
+        character = modseq[p]
+        hx = ord(character)
+        
+        # Pull out mod, in the form of a floating point number
+        if hx < 65:
+            mod_lst = []
+
+            # N-terminal modifications precede the amino acid letter
+            nterm = True if p == 0 else False
+
+            # All numerals and mathematical symbels are below 65
+            while hx < 65:
+                mod_lst.append(character)
+                p += 1
+
+                # This will happen if we have a C-term modification
+                if p == len(modseq):
+                    break
+                else:
+                    character = modseq[p]
+                    hx = ord(character)
+            mod = "".join(mod_lst)
+
+            # Add the amino acid to the end of the number if N-term
+            if nterm:
+                # These nterm modifications occur with every amino acid at least once.
+                if mod in ["+42.011", "+43.006"]:
+                    sequence.append(mod)
+                else:
+                    token = mod + character
+                    sequence.append(token)
+            
+            # Grab the previously stored sequence AA and add modification to it
+            else:
+                sequence[-1] += mod
+            
+            p -= 1
+
+        else:
+            sequence.append(character)
+
+        p += 1
+    
+    return sequence
+
 masses = {
 	'A': 71.037113805,
     'R': 156.101111050,

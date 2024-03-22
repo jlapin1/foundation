@@ -36,11 +36,14 @@ def gather_file_md(filepath, typ=None):
                     rt = float(line.split('=')[-1])
                     spectra[spec_ticker]['rt'] = rt
                 elif line.split('=')[0] == 'CHARGE':
-                    charge = int(line.split('=')[-1][:-1])
+                    charge = int(line.split('=')[-1].replace('+',''))
                     spectra[spec_ticker]['charge'] = charge
                 elif line.split('=')[0] == 'PEPMASS':
                     mass = float(line.split('=')[-1])
                     spectra[spec_ticker]['mass'] = mass
+                elif line.split('=')[0] == 'SEQUENCE':
+                    seq = line.split('=')[-1]
+                    spectra[spec_ticker]['sequence'] = seq
                 elif len(line.split('.')) == 3:
                     peak_ticker = 0
                     spectra[spec_ticker]['pos'] = pos_prev
@@ -53,7 +56,7 @@ def gather_file_md(filepath, typ=None):
                     #    spectra[spec_ticker]['charge']
                     #)
 
-                    assert len(spectra[spec_ticker].keys()) == 6
+                    assert len(spectra[spec_ticker].keys()) >= 6
                     spec_ticker += 1
                 
                 pos_prev = pos

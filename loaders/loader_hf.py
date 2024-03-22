@@ -2,6 +2,8 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 import torch as th
 import os
+import utils
+import re
 
 def map_fn(example, dic, top=100, max_seq=50):
     ab = th.tensor(example['ab'])
