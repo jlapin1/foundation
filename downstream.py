@@ -232,13 +232,13 @@ class DownstreamObj:
 
         print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
         
-    def savetxt(self, train_loss=True, eval_stats=None, svdir="save/"):
+    def savetxt(self, train_loss=None, eval_stats=None, svdir="save/"):
         if eval_stats is not None:
-            np.savetxt(svdir+"eval_stats.txt", np.array(eval_stats), fmt='%.6f')
+            np.savetxt(svdir+"eval_stats2.txt", np.array(eval_stats), fmt='%.6f')
         if train_loss is not None:
-            if os.path.exists(svdir+"train_loss.txt"):
-                train_loss = np.append(np.loadtxt(svdir+"train_loss.txt"), train_loss)
-            np.savetxt(svdir+"train_loss.txt", train_loss, fmt="%.6f")
+            if os.path.exists(svdir+"train_loss2.txt"):
+                train_loss = np.append(np.loadtxt(svdir+"train_loss2.txt"), train_loss)
+            np.savetxt(svdir+"train_loss2.txt", train_loss, fmt="%.6f")
 
 class BaseDenovo(DownstreamObj):
     def __init__(self, 
@@ -305,7 +305,7 @@ class BaseDenovo(DownstreamObj):
                 tots[metric] += roc_stats[metric]
         
         steps = i+1
-        totsz = self.config['loader_hf']['batch_size']*steps
+        totsz = self.config['loader']['batch_size']*steps
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
         out['old_recall'] = out['old_recall'] / old_recall_sum
         out['auprc'] = out['auprc'] / steps
@@ -343,7 +343,7 @@ class BaseDenovo(DownstreamObj):
             self.eval_stats.append(list(out.values()))
             
             # Save data
-            self.savetxt(np.array(self.eval_stats))
+            self.savetxt(train_loss=None, eval_stats=np.array(self.eval_stats))
         
         return lines, highline
 
@@ -356,7 +356,7 @@ class DenovoArDSObj(BaseDenovo):
         )
 
         # Dataloader
-        self.data = LoaderHF(**self.config['loader_hf'])
+        self.data = LoaderHF(**self.config['loader'])
         self.predcats = len(self.data.amod_dic)
 
         # Head model

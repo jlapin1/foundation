@@ -1,6 +1,6 @@
 batch_size: 100
 lr: 0.00005
-lr_warmup: False
+lr_warmup: True
 lr_warmup_start: 1.0e-7
 lr_warmup_end: 2.0e-4
 lr_warmup_steps: 20000
@@ -13,7 +13,7 @@ encoder_start: 0
 save_weights: False
 debug: False
 # Loader options
-loader_hf:
+loader:
   dataset_path: 
     train: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*train*
     val: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/instanovo_val.parquet
@@ -27,24 +27,7 @@ loader_hf:
   scratch:
     use: True
     path: /media/storage/scratch/mkb/
-loader:
-  top_pks: 100
-  pep_length: [0, 30]
-  charge: [0, 10]
-  add_mass: True
-  paths:
-    train:
-      - /cmnfs/data/proteomics/foundational_model/ninespecies_xy/train-00001-of-00002-fb1cb1b5c4a4ef4f.parquet
-      - /cmnfs/data/proteomics/foundational_model/ninespecies_xy/train-00000-of-00002-ca1fbc3de7c99259.parquet
-    val: 
-      - /cmnfs/data/proteomics/foundational_model/ninespecies_xy/validation-00000-of-00001-b84568f5bf3ba95d.parquet
-    test: 
-      - /cmnfs/data/proteomics/foundational_model/ninespecies_xy/test-00000-of-00001-15be7bb3864037e7.parquet
 # Downstream task specific options
-denovo_bl:
-  head_dict:
-    penult_units: 512
-    drop_rate: 0
 denovo_ar:
   head_dict:
     running_units: 512

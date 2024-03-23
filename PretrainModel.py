@@ -63,28 +63,23 @@ if config['svwts'] is False:
     dsconfig['save_weights'] = False
 # Override/add to downstream/dataset top_pks
 dsconfig['loader']['top_pks'] = config['max_peaks']
-dc['pretrain']['top_pks'] = config['max_peaks']
+dsconfig['loader']['batch_size'] = config['batch_size']
+dc['loader']['top_pks'] = config['max_peaks']
+dc['loader']['batch_size'] = config['batch_size']
 # set downstream encoder_dict
 dsconfig['encoder_dict'] = mconf['encoder_dict']
 # set kv_indim in decoder_dict to the enocoder's running_units
 dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['running_units']
 
 
-
 ###############################################################################
 #                                  Loader                                     #
 ###############################################################################
 
-from loaders.loader import DatasetObj, DataLoader
+from loaders.loader_hf import LoaderHF
 from copy import deepcopy
 
-dataset = DatasetObj(**dc['pretrain'])
-L = DataLoader(
-    dataset=dataset,
-    num_workers=dc['num_workers'],
-    batch_size=config['batch_size'],
-    shuffle=True,
-)
+L = LoaderHF(**dc['loader'])
 
 ###############################################################################
 #                                   Model                                     #
@@ -246,6 +241,11 @@ def evaluation(steps=100, out_name="activations.txt"):
         for m in range(9):
             f.write((" ".join(ll*["%8.5f"]))%tuple(others[m]) + '\n')
 
+def save_train_loss(filepath, loss_list):
+    if os.path.exists(filepath):
+        loss_list = np.append(np.loadtxt(filepath), np.array(loss_list))
+    np.savetxt(filepath, loss_list, fmt='%.6f')
+
 def train(epochs=1, runlen=50, svfreq=3600):
     
     # Shorthand
@@ -297,26 +297,32 @@ def train(epochs=1, runlen=50, svfreq=3600):
     if config['eval_steps']>0: 
         evaluation(config['eval_steps'], 'save/%s/activations.txt'%svdir)
     
+    loss_list = []
     for epoch in range(epochs):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
         
+        L.dataset['train'].set_epoch(epoch)
         start_load = time()
-        for step, batch in enumerate(L):
+        for step, batch in enumerate(L.dataloader['train']):
             running_time.append(0 if step==0 else time()-start_step)
             start_step = time()
             load_time.append(start_step-start_load)
             
             # Train model for a step
+            TT=time()
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
             
-            TT=time();loss = train_step(
+            loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
-            );graph_time.append(time()-TT) # train_step time sandwich
+            )
             
             # Save running stats
-            T[random_task].log_loss(loss.detach().cpu().numpy())
+            loss = loss.detach().cpu().numpy()
+            T[random_task].log_loss(loss)
+            loss_list.append(T[random_task].calc_avg_running_loss()['main'])
             running_time.append(time()-start_step)
+            graph_time.append(time()-TT)
             
             # Gradient tracking
             if config['svgrad']:
@@ -337,8 +343,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
                 ])
                 loss_string = loss_spec%means
                 sys.stdout.write(
-                    "\r\033[KStep %6d/%6d, loss=%s (%.2f,%.2f,%.2f s)"%(
-                        step, config['steps_per_epoch'], loss_string, 
+                    "\r\033[KStep %6d, loss=%s (%.3f,%.3f,%.3f s)"%(
+                        step, loss_string, 
                         np.mean(running_time), np.mean(load_time), 
                         np.mean(graph_time)
                     )
@@ -350,8 +356,10 @@ def train(epochs=1, runlen=50, svfreq=3600):
                     save_all_weights(svdir)
                 svtime = time()
 
-            if step == config['steps_per_epoch']-1:
-                break
+            #if step == config['steps_per_epoch']-1:
+            #    break
+            if msg & ((step) % config['steps_per_epoch'] == 0):
+                save_train_loss("save/%s/train_loss.txt"%svdir, loss_list)
 
             start_load = time()
 

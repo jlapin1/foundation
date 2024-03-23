@@ -5,7 +5,7 @@ import os
 import utils
 import re
 
-def map_fn(example, dic, top=100, max_seq=50):
+def map_fn(example, dic=None, top=100, max_seq=50):
     ab = th.tensor(example['ab'])
     ab_sort = (-ab).argsort()[:top]
     ab = ab[ab_sort]
@@ -22,10 +22,11 @@ def map_fn(example, dic, top=100, max_seq=50):
     example['charge'] = th.tensor(example['charge'], dtype=th.int32)
     example['mass'] = th.tensor(example['mass'], dtype=th.float32)
     example['length'] = th.tensor(length, dtype=th.int32)
-    intseq = [dic[m] for m in example['sequence']]
-    intseq += (max_seq-len(intseq))*[dic['X']]
-    example['intseq'] = th.tensor(intseq, dtype=th.int32)
-    example['peplen'] = th.tensor(len(example['sequence']), dtype=th.int32)
+    if len(example['sequence']) > 0:
+        intseq = [dic[m] for m in example['sequence']]
+        intseq += (max_seq-len(intseq))*[dic['X']]
+        example['intseq'] = th.tensor(intseq, dtype=th.int32)
+        example['peplen'] = th.tensor(len(example['sequence']), dtype=th.int32)
 
     return example
 
@@ -35,23 +36,33 @@ def collate_fn(batch_list):
     charge = th.stack([m['charge'] for m in batch_list])
     mass = th.stack([m['mass'] for m in batch_list])
     length = th.stack([m['length'] for m in batch_list])
-    peplen = th.stack([m['peplen'] for m in batch_list])
-    intseq = th.stack([m['intseq'] for m in batch_list])
+    if 'peplen' in batch_list[0]:
+        peplen = th.stack([m['peplen'] for m in batch_list])
+    else:
+        peplen = None
+    if 'intseq' in batch_list[0]:
+        intseq = th.stack([m['intseq'] for m in batch_list])
+    else:
+        intseq = None
 
-    return {
+    out = {
         'mz': mz,
         'ab': ab,
         'charge': charge,
         'mass': mass,
         'length': length,
-        'intseq': intseq,
-        'peplen': peplen,
     }
+    if intseq is not None:
+        out['intseq'] = intseq
+    if peplen is not None:
+        out['peplen'] = peplen
+
+    return out
 
 class LoaderHF:
     def __init__(self, 
         dataset_path: dict,
-        dictionary_path: str,
+        dictionary_path: str=None,
         top_pks: int=100,
         batch_size: int=100,
         num_workers: int=0,
@@ -72,10 +83,11 @@ class LoaderHF:
                     print("Scratch directory not found. Using original paths.")
 
         # Dictionary
-        self.amod_dic = {
-            line.split()[0]:m for m, line in enumerate(open(dictionary_path))
-        }
-        self.amod_dic['X'] = len(self.amod_dic)
+        if dictionary_path is not None:
+            self.amod_dic = {
+                line.split()[0]:m for m, line in enumerate(open(dictionary_path))
+            }
+            self.amod_dic['X'] = len(self.amod_dic)
         
         # Dataset
         dataset = load_dataset(

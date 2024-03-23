@@ -1,17 +1,14 @@
-num_workers: 4
-pretrain:
-  train_dirs: 
-    - /cmnfs/data/proteomics/foundational_model/PXD004732
-    - /cmnfs/data/proteomics/foundational_model/PXD010595
-    - /cmnfs/data/proteomics/foundational_model/PXD021013
-  mdsaved_path: ./save/mdsaved
-  preopen_files: False
-  filter_psms: False
-  save_md: True
+loader:
+  dataset_path: 
+    train: /cmnfs/data/proteomics/foundational_model/PretrainV1/parquets/*train*
+    val: /cmnfs/data/proteomics/foundational_model/PretrainV1/parquets/*val*
+    test: /cmnfs/data/proteomics/foundational_model/PretrainV1/parquets/*test*
+  dictionary_path: /cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt
+  pep_length: [0, 30]
+  top_pks: 100
+  buffer_size: 10000
+  batch_size: 100
+  num_workers: 16
   scratch:
     use: True
-    path: /media/storage/scratch/
-downstream:
-  train_dir: /cmnfs/home/j.lapin/datasets/downstream/train
-  test_dir: /cmnfs/home/j.lapin/datasets/downstream/test
-  mdsaved_path: ./save/mdsaved
+    path: /media/storage/scratch/pretrain/
