@@ -360,6 +360,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
             #    break
             if msg & ((step) % config['steps_per_epoch'] == 0):
                 save_train_loss("save/%s/train_loss.txt"%svdir, loss_list)
+                loss_list = []
 
             start_load = time()
 
