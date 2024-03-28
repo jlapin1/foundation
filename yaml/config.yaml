@@ -2,6 +2,7 @@ seed:
 max_peaks: 100
 epochs: 1
 steps_per_epoch: 10000
+max_steps: 200000
 eval_steps: 0
 batch_size: 100
 lr: 4e-5
@@ -20,9 +21,9 @@ tasks:
   #- maldi
 downstream:
   - denovo_ar
-load: True
+load: False
 loadpath: save/2024-03-23_18-49-24.152971/weights/
-log: True
+log: False
 svwts: True
 svfreq: 1800
 svgrad: False

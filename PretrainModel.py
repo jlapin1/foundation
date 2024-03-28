@@ -298,6 +298,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
         evaluation(config['eval_steps'], 'save/%s/activations.txt'%svdir)
     
     loss_list = []
+    max_step_tick=False
     for epoch in range(epochs):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
@@ -358,13 +359,20 @@ def train(epochs=1, runlen=50, svfreq=3600):
 
             #if step == config['steps_per_epoch']-1:
             #    break
-            if msg & ((step) % config['steps_per_epoch'] == 0):
+            if msg & ((step+1) % config['steps_per_epoch'] == 0):
                 save_train_loss("save/%s/train_loss.txt"%svdir, loss_list)
                 loss_list = []
 
             start_load = time()
 
+            if int(ancoder.global_step) == config['max_steps']:
+                max_steps_tick = True
+                break
+
         # End of epoch
+        if max_steps_tick:
+            break
+
         tot_losses = tuple([
             task.calc_avg_total_loss()['main'] for task_name, task in T.items()
         ])
