@@ -234,11 +234,11 @@ class DownstreamObj:
         
     def savetxt(self, train_loss=None, eval_stats=None, svdir="save/"):
         if eval_stats is not None:
-            np.savetxt(svdir+"eval_stats2.txt", np.array(eval_stats), fmt='%.6f')
+            np.savetxt(svdir+"eval_stats.txt", np.array(eval_stats), fmt='%.6f')
         if train_loss is not None:
-            if os.path.exists(svdir+"train_loss2.txt"):
-                train_loss = np.append(np.loadtxt(svdir+"train_loss2.txt"), train_loss)
-            np.savetxt(svdir+"train_loss2.txt", train_loss, fmt="%.6f")
+            if os.path.exists(svdir+"train_loss.txt"):
+                train_loss = np.append(np.loadtxt(svdir+"train_loss.txt"), train_loss)
+            np.savetxt(svdir+"train_loss.txt", train_loss, fmt="%.6f")
 
 class BaseDenovo(DownstreamObj):
     def __init__(self, 
