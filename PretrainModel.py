@@ -365,7 +365,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
 
             start_load = time()
 
-            if int(ancoder.global_step) == config['max_steps']:
+            if int(encoder.global_step) == config['max_steps']:
                 max_steps_tick = True
                 break
 
