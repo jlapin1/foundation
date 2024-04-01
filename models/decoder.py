@@ -291,19 +291,19 @@ class DenovoDecoder:
         self.outdict = deepcopy(token_dict)
         self.inpdict = deepcopy(token_dict)
         self.NT = self.outdict['X']
-        self.inpdict['<SOS>'] = len(self.inpdict)
+        self.inpdict['<SOS>'] = np.max(list(self.inpdict.values())) + 1
         self.start_token = self.inpdict['<SOS>']
         #self.inpdict['<h>'] = len(self.inpdict)
         #self.hidden_token = self.inpdict['<h>']
         
         self.outdict.pop('X')
-        self.outdict['<EOS>'] = len(self.outdict)
+        self.outdict['<EOS>'] = np.max(list(self.outdict.values())) + 1
         self.EOS = self.outdict['<EOS>']
 
-        dec_config['num_inp_tokens'] = len(self.inpdict)
+        dec_config['num_inp_tokens'] = np.max(list(self.inpdict.values())) + 1
         
         self.rev_outdict = {n:m for m,n in self.outdict.items()}
-        self.predcats = len(self.outdict)
+        self.predcats = np.max(list(self.outdict.values())) + 1
         self.scale = Scale(self.outdict)
 
         self.dec_config = dec_config

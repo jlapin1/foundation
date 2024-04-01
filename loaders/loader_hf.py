@@ -59,6 +59,13 @@ def collate_fn(batch_list):
 
     return out
 
+exceptions = {
+    'C(+57.02)': 'C+57.021',
+    'M(+15.99)': 'M+15.995',
+    'N(+.98)': 'N+0.984',
+    'Q(+.98)': 'Q+0.984',
+}
+
 class LoaderHF:
     def __init__(self, 
         dataset_path: dict,
@@ -88,6 +95,9 @@ class LoaderHF:
                 line.split()[0]:m for m, line in enumerate(open(dictionary_path))
             }
             self.amod_dic['X'] = len(self.amod_dic)
+            #for key in exceptions.keys():
+            #    if exceptions[key] in self.amod_dic.keys():
+            #        self.amod_dic[key] = self.amod_dic[exceptions[key]]
         
         # Dataset
         dataset = load_dataset(

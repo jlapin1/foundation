@@ -6,27 +6,31 @@ lr_warmup_end: 2.0e-4
 lr_warmup_steps: 20000
 pretrain_path: #save/2024-01-28_12-59-08.367467
 dswts: True
-epochs: 3
+epochs: 30
 steps_per_epoch: 10000
-train_encoder: True
+train_encoder: False
 encoder_start: 10000
 save_weights: False
 debug: False
 # Loader options
 loader:
   dataset_path: 
-    train: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*train*
-    val: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/instanovo_val.parquet
-    test: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*test*
-  dictionary_path: /cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt
+    train: /cmnfs/data/proteomics/foundational_model/ninespecies_xy/parquets/instanovo*train*
+    val: /cmnfs/data/proteomics/foundational_model/ninespecies_xy/parquets/instanovo*val*
+    test: /cmnfs/data/proteomics/foundational_model/ninespecies_xy/parquets/instanovo*test*
+    #train: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*train*
+    #val: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/instanovo_val.parquet
+    #test: /cmnfs/data/proteomics/foundational_model/MassiveKB/parquets/*test*
+  #dictionary_path: /cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt
+  dictionary_path: /cmnfs/data/proteomics/foundational_model/ninespecies_xy/ninespecies_dictionary.txt
   pep_length: [0, 30]
   top_pks: 100
   buffer_size: 10000
   batch_size: 100
-  num_workers: 8
+  num_workers: 4
   scratch:
     use: True
-    path: /media/storage/scratch/mkb/
+    path: /media/storage/scratch/ninespecies/
 # Downstream task specific options
 denovo_ar:
   head_dict:

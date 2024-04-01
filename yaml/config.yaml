@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "dqk = 128"
+header: "downstream without training encoder"

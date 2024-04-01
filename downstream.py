@@ -225,7 +225,7 @@ class DownstreamObj:
             print("\rTraining step %d  Running Loss: %.6f (%.3f s)"%(step+1, rlm, rtm), end='')
             
             self.running_loss.append(rlm)
-            if (step+1) % svfreq == 0:
+            if self.global_step % svfreq == 0:
                 self.savetxt(self.running_loss)
                 self.running_loss = []
 
@@ -235,7 +235,11 @@ class DownstreamObj:
             #running_time[1].append(split1 - step_start)
             #running_time[2].append(split2 - split1)
             #running_time[3].append(split3 - split2)
-
+        
+        if len(self.running_loss) > 0:
+            self.savetxt(self.running_loss)
+            self.running_loss = []
+        
         print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
         
     def savetxt(self, train_loss=None, eval_stats=None):
@@ -356,7 +360,7 @@ class DenovoArDSObj(BaseDenovo):
 
         # Dataloader
         self.data = LoaderHF(**self.config['loader'])
-        self.predcats = len(self.data.amod_dic)
+        self.predcats = np.max(list(self.data.amod_dic.values())) + 1
 
         # Head model
         head_dict = self.config[task]['head_dict']
