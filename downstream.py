@@ -24,11 +24,17 @@ choice = np.random.choice
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
 class DownstreamObj:
-    def __init__(self, config, task='denovo_ar', base_model=None):
+    def __init__(self, config, task='denovo_ar', base_model=None, svdir='./downstream/'):
         
         # Config is entire downstream yaml
         self.config = config
         self.task = task
+        
+        if svdir[-1] != '/': svdir += '/'
+        if self.config['save_weights']:
+            if not os.path.exists(svdir+'weights'):
+                os.mkdir(svdir+'weights')
+        self.svdir = svdir
        
         if config['lr_warmup']:
             self.lr_warmup_increment = (
@@ -44,7 +50,7 @@ class DownstreamObj:
         #   its configuration settings to self.config
         self.configure_encoder(base_model) # self.config updated
         #if not config['train_encoder']: self.encoder.trainable = False
- 
+
         self.running_loss = []
         self.global_step = 0
     
@@ -232,13 +238,13 @@ class DownstreamObj:
 
         print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
         
-    def savetxt(self, train_loss=None, eval_stats=None, svdir="save/"):
+    def savetxt(self, train_loss=None, eval_stats=None):
         if eval_stats is not None:
-            np.savetxt(svdir+"eval_stats.txt", np.array(eval_stats), fmt='%.6f')
+            np.savetxt(self.svdir+"eval_stats.txt", np.array(eval_stats), fmt='%.6f')
         if train_loss is not None:
-            if os.path.exists(svdir+"train_loss.txt"):
-                train_loss = np.append(np.loadtxt(svdir+"train_loss.txt"), train_loss)
-            np.savetxt(svdir+"train_loss.txt", train_loss, fmt="%.6f")
+            if os.path.exists(self.svdir+"train_loss.txt"):
+                train_loss = np.append(np.loadtxt(self.svdir+"train_loss.txt"), train_loss)
+            np.savetxt(self.svdir+"train_loss.txt", train_loss, fmt="%.6f")
 
 class BaseDenovo(DownstreamObj):
     def __init__(self, 
@@ -246,16 +252,10 @@ class BaseDenovo(DownstreamObj):
                  task='denovo', 
                  base_model=None, 
                  ar=False, 
-                 svdir='./dswts/'
+                 svdir='./downstream/'
                  ):
-        super().__init__(config=config, task=task, base_model=base_model)
+        super().__init__(config=config, task=task, base_model=base_model, svdir=svdir)
         self.ar = ar
-        if svdir[-1] != '/': svdir += '/'
-        if config['pretrain_path'] is not None:
-            svdir = "/".join([config['pretrain_path'], svdir])
-            if not os.path.exists(svdir):
-                os.mkdir(svdir)
-        self.svdir = svdir
 
         self.eval_stats = []
 
@@ -334,11 +334,10 @@ class BaseDenovo(DownstreamObj):
             lines.append(line)
             print("\r"+line)
 
-
             if self.config['save_weights']:
-                self.save_head(self.svdir+'head.wts')
+                self.save_head(self.svdir+'weights/head.wts')
                 if self.config['train_encoder']:
-                    self.save_encoder(self.svdir+'encoder.wts')
+                    self.save_encoder(self.svdir+'weights/encoder.wts')
             
             self.eval_stats.append(list(out.values()))
             
@@ -452,11 +451,27 @@ class DenovoArDSObj(BaseDenovo):
 if __name__ == '__main__':
 
     # Read downstream yaml
-    with open("./yaml/downstream.yaml") as stream:
+    with open("./yaml/config.yaml") as stream:
         config = yaml.safe_load(stream)
+    with open("./yaml/downstream.yaml") as stream:
+        dsconfig = yaml.safe_load(stream)
+        dsconfig['log'] = config['log']
+    
+    # Shorthand
+    bs = dsconfig['batch_size']
+    msg = config['log']
+    swt = config['svwts']
+    
+    # Create experiment directory in save/
+    if (msg or swt):
+        timestamp = U.timestamp()
+        svdir = 'save/downstream_only/' + timestamp
+        U.create_experiment(svdir, svwts=config['svwts'])
+    else:
+        svdir = './'
 
     # Downstream object
     print("Denovo sequencing")
-    D = DenovoArDSObj(config)
+    D = DenovoArDSObj(dsconfig, svdir=svdir)
     #out = D.evaluation(dset='val')
     print(D.TrainEval()[-1])

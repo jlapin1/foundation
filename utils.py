@@ -6,6 +6,25 @@ import numpy as np
 from difflib import get_close_matches as gcm
 from sklearn.metrics import average_precision_score
 from copy import deepcopy
+import datetime
+import re
+import os
+
+def timestamp():
+    dt = str(datetime.datetime.now()).split()
+    dt[-1] = re.sub(':', '-', dt[-1]).split('.')[0]
+    return "_".join(dt)
+
+def create_experiment(directory, svwts=False):
+    os.mkdir(directory)
+    os.mkdir('%s/yaml'%directory)
+    os.system("cp ./yaml/*.yaml %s/yaml/"%directory)
+    if svwts: 
+        os.mkdir('%s/weights'%directory)
+
+def message_board(line, path):
+    with open(path, 'a') as F:
+        F.write(line)
 
 def save_optimizer_state(opt, fn):
     th.save(opt.state_dict(), fn)
@@ -21,10 +40,6 @@ def save_full_model(model, optimizer, svdir):
     save_optimizer_state(
         optimizer, 'save/%s/weights/opt_encopt.wts'%(svdir)
     )
-
-def message_board(line, path):
-    with open(path, 'a') as F:
-        F.write(line)
 
 def discretize_mz(mz, binsz, totbins):
     indices = th.maximum(

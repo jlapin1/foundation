@@ -99,7 +99,7 @@ else:
     encoder_dic = mconf['encoder_dict']
     encoder = Encoder(**encoder_dic)
 encoder.to(device) # model shouldn't need to come off of GPU entire run
-print("Total encoder parameters: %d"%encoder.total_params())
+print(f"Total encoder parameters: {encoder.total_params():,}")
 
 # Header model(s)
 header = Header(header_dict)#, lr=config['lr'])
@@ -112,11 +112,11 @@ optencoder = Adam(encoder.parameters(), config['lr'])
 def save_all_weights(svdir):
     U.save_full_model(encoder, optencoder, svdir)
     # Save all header weights in one file
-    th.save(header.state_dict(), "save/%s/weights/model_%s.wts"%(svdir, header.name))
+    th.save(header.state_dict(), "%s/weights/model_%s.wts"%(svdir, header.name))
     # Save header optimizer weights individually
     for task_name in config['tasks']:
         # optimizer.name should have opt_ already in it (see Header in models)
-        fn = 'save/%s/weights/opt_%s.wts'%(svdir, task_name)
+        fn = '%s/weights/opt_%s.wts'%(svdir, task_name)
         U.save_optimizer_state(header.opts[task_name], fn)
 
 if config['load']:
@@ -155,10 +155,7 @@ if not config['debug']:
 
     # Downstream object
     allds = {
-        #'charge': ds.ChargeDSObj,
-        #'peplen': ds.PeplenDSObj,
         'denovo_ar': ds.DenovoArDSObj,
-        #'denovo_bl': ds.DenovoBlDSObj,
     }
 
 ###############################################################################
@@ -252,30 +249,23 @@ def train(epochs=1, runlen=50, svfreq=3600):
     bs = config['batch_size']
     msg = config['log'] & (config['debug']!=True)
     swt = config['svwts'] & (config['debug']!=True)
+    
     # Create experiment directory in save/
     if (msg or swt):
-        dt = str(datetime.datetime.now()).split()
-        dt[-1] = re.sub(':','-',dt[-1]) # linux has issue with : symbol
-        svdir = "_".join(dt)
-        os.mkdir('save/%s'%svdir);
-        os.mkdir('save/%s/yaml'%svdir)
-        os.system("cp ./yaml/*.yaml save/%s/yaml/"%svdir)
+        timestamp = U.timestamp()
+        svdir = 'save/' + timestamp
+        U.create_experiment(svdir, svwts=config['svwts'])
         if config['svwts']: 
-            os.mkdir('save/%s/weights'%svdir)
             save_all_weights(svdir)
     else:
         svdir = './' # for establishing ds objects below
     
     # Log starting messages and start collection all lines
     if msg:
-        line = "%s\nTotal parameters: %d\n"%(
-            config['header'], encoder.total_params()
-        )
-        U.message_board(line, "save/%s/epochout.txt"%svdir)
-        #U.message_board(line, "save/%s/valout.txt"%svdir)
-        line = "%s\n%s\n"%(svdir, config['header'])
+        line = f"{config['header']}\nTotal parameters: {encoder.total_params():,}\n"
+        U.message_board(line, "%s/epochout.txt"%svdir)
+        line = "%s\n%s\n"%(timestamp, config['header'])
         allepochlines = [line]
-        #allvallines = [line]
 
     # Variables needed for saving gradient infomration
     if config['svgrad']:
@@ -295,7 +285,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
     
     if config['eval_steps']>0: 
-        evaluation(config['eval_steps'], 'save/%s/activations.txt'%svdir)
+        evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
     
     loss_list = []
     max_step_tick=False
@@ -313,7 +303,6 @@ def train(epochs=1, runlen=50, svfreq=3600):
             # Train model for a step
             TT=time()
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
-            
             loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
             )
@@ -357,14 +346,17 @@ def train(epochs=1, runlen=50, svfreq=3600):
                     save_all_weights(svdir)
                 svtime = time()
 
-            #if step == config['steps_per_epoch']-1:
-            #    break
-            if msg & ((step+1) % config['steps_per_epoch'] == 0):
-                save_train_loss("save/%s/train_loss.txt"%svdir, loss_list)
+            # Report mean running loss
+            if msg & ((step+1) % config['steps_per_report'] == 0):
+                line = "Step %d %f\n"%(step+1,np.mean(loss_list))
+                U.message_board(line, "%s/epochout.txt"%svdir)
+                save_train_loss("%s/train_loss.txt"%svdir, loss_list)
+                allepochlines.append(Line+"\n")
                 loss_list = []
 
             start_load = time()
-
+            
+            # Arrest training at max_steps
             if int(encoder.global_step) == config['max_steps']:
                 max_steps_tick = True
                 break
@@ -382,11 +374,11 @@ def train(epochs=1, runlen=50, svfreq=3600):
         )
         sys.stdout.write("\r\033[K%s\n"%Line)
         if msg:
-            U.message_board(Line+'\n', "save/%s/epochout.txt"%svdir)
+            U.message_board(Line+'\n', "%s/epochout.txt"%svdir)
             allepochlines.append(Line+"\n")
 
         if config['eval_steps']>0: 
-            evaluation(config['eval_steps'], 'save/%s/activations.txt'%svdir)
+            evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
     
     # End of pre-training
     # Save weights, perhaps
@@ -394,24 +386,24 @@ def train(epochs=1, runlen=50, svfreq=3600):
         save_all_weights(svdir)
     # Save gradients, perhaps
     if config['svgrad']:
-        with open('save/'+svdir+"/parmshapes", 'w') as f: 
+        with open(svdir+"/parmshapes", 'w') as f: 
             f.write("|".join(parmshapes))
-        np.savetxt('save/'+svdir+"/allloss", np.array(all_loss))
-        np.savetxt('save/'+svdir+"/parmgrads", np.array(parmgrads))
+        np.savetxt(svdir+"/allloss", np.array(all_loss))
+        np.savetxt(svdir+"/parmgrads", np.array(parmgrads))
 
     # Run quick(ish) few shot downstream evaluation
     if config['downstream'] is not None:
         for dstask in config['downstream']:
             DS = allds[dstask](
                 dsconfig, base_model=encoder, 
-                svdir='save/%s/dswts/%s/'%(svdir, dstask)
+                svdir='%s/downstream/%s/'%(svdir, dstask)
             )
             sys.stdout.write("\r\033[KDownstream evlauation: %s\n"%(dstask))
             line, highline = DS.TrainEval()
             Line = "Downstream evlauation: %s; "%(dstask) + highline
             sys.stdout.write("\r\033[K%s\n"%Line)
             if msg:
-                U.message_board("\n".join(line)+'\n', "save/%s/epochout.txt"%svdir)
+                U.message_board("\n".join(line)+'\n', "%s/epochout.txt"%svdir)
                 allepochlines.append(Line+"\n")
     if msg:
         # Append results to the .all files
@@ -419,8 +411,10 @@ def train(epochs=1, runlen=50, svfreq=3600):
     
     print()
 
-if config['seed'] is not None:
-    np.random.seed(config['seed'])
-    th.manual_seed(config['seed'])
-train(epochs=config['epochs'], runlen=100, svfreq=config['svfreq'])
+if __name__ == '__main__':
+
+    if config['seed'] is not None:
+        np.random.seed(config['seed'])
+        th.manual_seed(config['seed'])
+    train(epochs=config['epochs'], runlen=100, svfreq=config['svfreq'])
 
