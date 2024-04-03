@@ -35,10 +35,10 @@ def load_optimizer_state(opt, fn, device):
 def save_full_model(model, optimizer, svdir):
     th.save(
         model.state_dict(), 
-        "save/%s/weights/model_enc.wts"%(svdir)
+        "%s/weights/model_enc.wts"%(svdir)
     )
     save_optimizer_state(
-        optimizer, 'save/%s/weights/opt_encopt.wts'%(svdir)
+        optimizer, '%s/weights/opt_encopt.wts'%(svdir)
     )
 
 def discretize_mz(mz, binsz, totbins):

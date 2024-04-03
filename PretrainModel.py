@@ -70,7 +70,8 @@ dc['loader']['batch_size'] = config['batch_size']
 dsconfig['encoder_dict'] = mconf['encoder_dict']
 # set kv_indim in decoder_dict to the enocoder's running_units
 dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['running_units']
-
+# Log downstream if logging pretraining
+dsconfig['log'] = config['log']
 
 ###############################################################################
 #                                  Loader                                     #
@@ -348,7 +349,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
 
             # Report mean running loss
             if msg & ((step+1) % config['steps_per_report'] == 0):
-                line = "Step %d %f\n"%(step+1,np.mean(loss_list))
+                Line = "Step %d %f\n"%(step+1,np.mean(loss_list))
                 U.message_board(line, "%s/epochout.txt"%svdir)
                 save_train_loss("%s/train_loss.txt"%svdir, loss_list)
                 allepochlines.append(Line+"\n")
@@ -358,6 +359,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
             
             # Arrest training at max_steps
             if int(encoder.global_step) == config['max_steps']:
+                print()
+                if msg: save_train_loss("%s/train_loss.txt"%svdir, loss_list)
                 max_steps_tick = True
                 break
 

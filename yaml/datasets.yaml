@@ -8,7 +8,7 @@ loader:
   top_pks: 100
   buffer_size: 10000
   batch_size: 100
-  num_workers: 16
+  num_workers: 12
   scratch:
     use: True
     path: /media/storage/scratch/pretrain/

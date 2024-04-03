@@ -30,7 +30,11 @@ class DownstreamObj:
         self.config = config
         self.task = task
         
+        # Create directory for saving results; only use if run from PretrainModel.py
+        self.log = config['log'] or config['save_weights']
         if svdir[-1] != '/': svdir += '/'
+        if self.log and not os.path.exists(svdir):
+            os.makedirs(svdir)
         if self.config['save_weights']:
             if not os.path.exists(svdir+'weights'):
                 os.mkdir(svdir+'weights')
@@ -225,7 +229,7 @@ class DownstreamObj:
             print("\rTraining step %d  Running Loss: %.6f (%.3f s)"%(step+1, rlm, rtm), end='')
             
             self.running_loss.append(rlm)
-            if self.global_step % svfreq == 0:
+            if self.log and (self.global_step % svfreq == 0):
                 self.savetxt(self.running_loss)
                 self.running_loss = []
 
@@ -236,7 +240,7 @@ class DownstreamObj:
             #running_time[2].append(split2 - split1)
             #running_time[3].append(split3 - split2)
         
-        if len(self.running_loss) > 0:
+        if self.log and (len(self.running_loss) > 0):
             self.savetxt(self.running_loss)
             self.running_loss = []
         
@@ -346,7 +350,8 @@ class BaseDenovo(DownstreamObj):
             self.eval_stats.append(list(out.values()))
             
             # Save data
-            self.savetxt(train_loss=None, eval_stats=np.array(self.eval_stats))
+            if self.log:
+                self.savetxt(train_loss=None, eval_stats=np.array(self.eval_stats))
         
         return lines, highline
 
