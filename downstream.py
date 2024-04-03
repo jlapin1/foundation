@@ -476,6 +476,8 @@ if __name__ == '__main__':
         timestamp = U.timestamp()
         svdir = 'save/downstream_only/' + timestamp
         U.create_experiment(svdir, svwts=config['svwts'])
+        with open(svdir + '/experiment_header', 'w') as f:
+            f.write("Experiment header: " + config['header'])
     else:
         svdir = './'
 

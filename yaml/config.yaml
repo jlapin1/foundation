@@ -28,4 +28,4 @@ svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "pretrain 200000 steps, then downstream without training encoder"
+header: "Pairwise model downstream"

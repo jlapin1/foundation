@@ -4,15 +4,14 @@ lr_warmup: True
 lr_warmup_start: 1.0e-7
 lr_warmup_end: 2.0e-4
 lr_warmup_steps: 20000
-pretrain_path: save/2024-04-02_13-17-09
+pretrain_path:
 dswts: False
-epochs: 15
+epochs: 30
 steps_per_epoch: 10000
-train_encoder: False
-encoder_start: 10000
-log: False
-save_weights: True
-debug: False
+train_encoder: True
+encoder_start: 0
+log: True
+save_weights: False
 # Loader options
 loader:
   dataset_path: 

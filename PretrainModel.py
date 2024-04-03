@@ -263,7 +263,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
     
     # Log starting messages and start collection all lines
     if msg:
-        line = f"{config['header']}\nTotal parameters: {encoder.total_params():,}\n"
+        line = f"Experiment header: {config['header']}\nTotal parameters: {encoder.total_params():,}\n"
         U.message_board(line, "%s/epochout.txt"%svdir)
         line = "%s\n%s\n"%(timestamp, config['header'])
         allepochlines = [line]
@@ -350,7 +350,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
             # Report mean running loss
             if msg & ((step+1) % config['steps_per_report'] == 0):
                 Line = "Step %d %f\n"%(step+1,np.mean(loss_list))
-                U.message_board(line, "%s/epochout.txt"%svdir)
+                U.message_board(Line, "%s/epochout.txt"%svdir)
                 save_train_loss("%s/train_loss.txt"%svdir, loss_list)
                 allepochlines.append(Line+"\n")
                 loss_list = []
