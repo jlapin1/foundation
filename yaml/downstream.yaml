@@ -5,12 +5,12 @@ lr_warmup_start: 1.0e-7
 lr_warmup_end: 2.0e-4
 lr_warmup_steps: 20000
 pretrain_path:
-dswts: False
+dswts: False # Load weights from previous downstream run
 epochs: 30
 steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
-log: True
+log: True # write to downstream_only directory
 save_weights: False
 # Loader options
 loader:
@@ -44,7 +44,7 @@ denovo_ar:
     use_charge: True
     use_energy: False
     use_mass: True
-    prec_type: 'inject_pre'
+    prec_type: 'inject_pre' # inject_pre | inject_ffn | inject_norm | pretoken | posttoken | None
     norm_type: 'layer'
     prenorm: True
     preembed: True

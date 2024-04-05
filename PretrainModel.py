@@ -72,6 +72,7 @@ dsconfig['encoder_dict'] = mconf['encoder_dict']
 dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['running_units']
 # Log downstream if logging pretraining
 dsconfig['log'] = config['log']
+dsconfig['header'] = config['header']
 
 ###############################################################################
 #                                  Loader                                     #

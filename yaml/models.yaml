@@ -5,16 +5,16 @@ encoder_dict:
   ab_units: 512
   subdivide: False
   running_units: 512
-  att_d: 64
+  att_d: 128
   att_h: 8
   gate: False
   alphabet: False
   depth: 9
-  ffn_multiplier: 4
+  ffn_multiplier: 2
   prenorm: True
   use_charge: False
   use_mass: False
-  bias: 'pairwise' # 'pairwise' | 'regular' | False | None
+  bias: # 'pairwise' | 'regular' | False | None
   dropout: 0
   pw_mz_units: 64
   pw_run_units: 64

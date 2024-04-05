@@ -32,6 +32,7 @@ class DownstreamObj:
         
         # Create directory for saving results; only use if run from PretrainModel.py
         self.log = config['log'] or config['save_weights']
+        self.header = config['header']
         if svdir[-1] != '/': svdir += '/'
         if self.log and not os.path.exists(svdir):
             os.makedirs(svdir)
@@ -248,11 +249,11 @@ class DownstreamObj:
         
     def savetxt(self, train_loss=None, eval_stats=None):
         if eval_stats is not None:
-            np.savetxt(self.svdir+"eval_stats.txt", np.array(eval_stats), fmt='%.6f')
+            np.savetxt(self.svdir+"eval_stats.txt", np.array(eval_stats), fmt='%.6f', header=self.header)
         if train_loss is not None:
             if os.path.exists(self.svdir+"train_loss.txt"):
                 train_loss = np.append(np.loadtxt(self.svdir+"train_loss.txt"), train_loss)
-            np.savetxt(self.svdir+"train_loss.txt", train_loss, fmt="%.6f")
+            np.savetxt(self.svdir+"train_loss.txt", train_loss, fmt="%.6f", header=self.header)
 
 class BaseDenovo(DownstreamObj):
     def __init__(self, 
@@ -465,13 +466,14 @@ if __name__ == '__main__':
     with open("./yaml/downstream.yaml") as stream:
         dsconfig = yaml.safe_load(stream)
         dsconfig['log'] = config['log']
+        dsconfig['header'] = config['header']
     
     # Shorthand
     bs = dsconfig['batch_size']
     msg = config['log']
     swt = config['svwts']
     
-    # Create experiment directory in save/
+    # Create experiment directory in save/downstream_only/
     if (msg or swt):
         timestamp = U.timestamp()
         svdir = 'save/downstream_only/' + timestamp
