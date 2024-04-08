@@ -170,7 +170,7 @@ class Decoder(nn.Module):
         self.apply(init_decoder_weights)
     
     def total_params(self):
-        return sum([m.numel() for m in self.parameters()])
+        return sum([m.numel() for m in self.parameters() if m.requires_grad])
     
     def sequence_mask(self, seqlen, max_len=None):
         # seqlen: 1d vector equal to (zero-based) index of predict token

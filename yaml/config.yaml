@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "d=128"
+header: "decoder dropout=0.25 and 1024 mz units and subdivide"

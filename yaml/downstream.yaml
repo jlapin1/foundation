@@ -50,6 +50,6 @@ denovo_ar:
     preembed: True
     penultimate_units:
     pool: False
-    dropout: 0
+    dropout: 0.25
     alphabet: False
 

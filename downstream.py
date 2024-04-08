@@ -112,6 +112,8 @@ class DownstreamObj:
             self.encoder.parameters(), self.starting_lr
         )
 
+        print(f"Total Encoder parameters: {self.encoder.total_params():,}") 
+
     def save_head(self, fp='./head.wts'):
         th.save(self.head.state_dict(), fp)
     
@@ -376,6 +378,7 @@ class DenovoArDSObj(BaseDenovo):
             token_dict=self.data.amod_dic, dec_config=head_dict, 
             encoder=self.encoder # encoder is set by inherited class
         )
+        print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
             self.head.load_weights(self.svdir + '/head.wts', device)
         self.head.decoder.to(device)
