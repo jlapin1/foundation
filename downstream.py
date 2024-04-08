@@ -483,6 +483,7 @@ if __name__ == '__main__':
         U.create_experiment(svdir, svwts=config['svwts'])
         with open(svdir + '/experiment_header', 'w') as f:
             f.write("Experiment header: " + config['header'])
+        print("Experiment is writing to directory %s"%svdir)
     else:
         svdir = './'
 

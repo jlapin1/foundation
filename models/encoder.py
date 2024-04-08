@@ -64,6 +64,7 @@ class Encoder(nn.Module):
                  pw_attention_ch=32, # triangle attention channels
                  pw_attention_h=4, # triangle attention heads
                  pw_blocks=2, # number of pairstack blocks for pairwise features
+                 pw_n=4, # pair transition unit multiplier
                  # Miscellaneous
                  recycling_its=1, # recycling iterations
                  device=th.device('cpu')
@@ -109,7 +110,7 @@ class Encoder(nn.Module):
             # Evolve features
             multdict = {'in_dim': self.pw_runits, 'c': 128}
             attdict = {'in_dim': self.pw_runits, 'c': pw_attention_ch, 'h': pw_attention_h}
-            ptdict = {'in_dim': self.pw_runits, 'n': 4}
+            ptdict = {'in_dim': self.pw_runits, 'n': pw_n}
             self.PwSeq = nn.Sequential(*[
                 pw.PairStack(multdict, attdict, ptdict, drop_rate=0)
                 for m in range(pw_blocks)
