@@ -10,5 +10,5 @@ loader:
   batch_size: 100
   num_workers: 12
   scratch:
-    use: True
+    use: False
     path: /media/storage/scratch/pretrain/

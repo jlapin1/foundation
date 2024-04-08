@@ -178,12 +178,19 @@ def train_step(batch, task, enc_opt, head_opt):
     header.zero_grad()
     head_opt.zero_grad()
     batch = U.Dict2dev(batch, device, inplace=False)
+    head_outputs = [task]
 
     inp = T[task].inptarg(batch)
     inp['length'] = batch['length']
+    
+    if hasattr(encoder, 'its'):
+        if encoder.its == 1: 
+            enc_output = encoder(**inp)
+        else:
+            enc_output = encoder.RecycleTrainOutput(inp)
+    else:
+        enc_output = encoder(**inp)
 
-    head_outputs = [task]
-    enc_output = encoder(**inp)
     prediction = header(enc_output['emb'], head_outputs)
     loss = T[task].loss(prediction[task])
     loss = loss.mean()
@@ -199,7 +206,34 @@ def train_step(batch, task, enc_opt, head_opt):
 
     return loss
 
-def evaluation(steps=100, out_name="activations.txt"):
+def evaluation():
+    task = "trinary_mz"
+    encoder.eval()
+    header.eval()
+
+    tot = 0
+    count = 0
+    with th.no_grad():
+        for step, batch in enumerate(L.dataloader['val']):
+            print("\rEvaluation step %d%50s"%(step+1, ""), end='')
+            batch = U.Dict2dev(batch, device, inplace=False)
+            inp = T[task].inptarg(batch)
+            inp['length'] = batch['length']
+            head_outputs = [task]
+            
+            enc_output = encoder(**inp)
+            prediction = header(enc_output['emb'], head_outputs)
+            loss = T[task].loss(prediction[task])
+
+            tot += loss.sum()
+            count += np.prod(tuple(loss.shape))
+        mean_loss = float(tot.detach().cpu().numpy()) / count
+    print("\rValidation loss at step %d: %.6f%50s"%(encoder.global_step, mean_loss, ""))
+
+    return mean_loss
+
+
+def activations(steps=100, out_name="activations.txt"):
     lst = [
         'Qm', 'Qs', 'Km', 'Ks', 
         'Vm', 'Vs', 'QKm', 'QKs', 
@@ -286,7 +320,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
     svtime = time()
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
     
-    if config['eval_steps']>0: 
+    if config['activation_steps']>0: 
         evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
     
     loss_list = []
@@ -355,6 +389,10 @@ def train(epochs=1, runlen=50, svfreq=3600):
                 save_train_loss("%s/train_loss.txt"%svdir, loss_list)
                 allepochlines.append(Line+"\n")
                 loss_list = []
+                
+            # Evaluation
+            if (step+1) % config['steps_per_report'] == 0:
+                eval_loss = evaluation()
 
             start_load = time()
             
@@ -416,7 +454,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
     print()
 
 if __name__ == '__main__':
-
+    
     if config['seed'] is not None:
         np.random.seed(config['seed'])
         th.manual_seed(config['seed'])
