@@ -18,8 +18,12 @@ def init_encoder_weights(module):
         #maxmin = (6 / (module.qkv.in_features + module.d))**0.5
         #module.qkv.weight = I.xavier_uniform_(module.qkv.weight)#, -maxmin, maxmin)
         #module.Wo.weight = I.xavier_uniform_(module.Wo.weight)
+        #module.qkv.weight = I.uniform_(module.qkv.weight, -0.03, 0.03)
+        #module.Wo.weight = I.uniform_(module.Wo.weight, -0.03, 0.03)
         module.qkv.weight = I.normal_(module.qkv.weight, 0.0, (2/3)*module.indim**-0.5)
         module.Wo.weight = I.normal_(module.Wo.weight, 0.0, (1/3)*(module.h*module.d)**-0.5)
+        module.qkv.bias = I.zeros_(module.qkv.bias)
+        module.Wo.bias = I.zeros_(module.Wo.bias)
         if hasattr(module, 'Wb'):
             module.Wb.weight = I.zeros_(module.Wb.weight)
             module.Wb.bias = I.zeros_(module.Wb.bias)
@@ -261,7 +265,7 @@ class Encoder(nn.Module):
                     return_full=False,
                     ):
         # Create mask
-        if length!=None:
+        if length != None:
             grid = th.tile(
                 th.arange(self.sl, dtype=th.int32)[None].to(x.device), 
                 (x.shape[0], 1)

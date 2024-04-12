@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "lower n from 4 to 1 in pair transition of pairwise"
+header: "1024 mz units, 256 ab units, subdivide=True, 4 pairstack 2 heads"

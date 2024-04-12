@@ -10,18 +10,18 @@ encoder_dict:
   gate: False
   alphabet: False
   depth: 9
-  ffn_multiplier: 2
-  prenorm: True
+  ffn_multiplier: 4
+  prenorm: False
   use_charge: False
   use_mass: False
-  bias: pairwise # 'pairwise' | 'regular' | False | None
-  dropout: 0
+  bias: 'pairwise' # 'pairwise' | 'regular' | False | None
+  dropout: 0.25
   pw_mz_units: 64
   pw_run_units: 64
   pw_attention_ch: 32
-  pw_attention_h: 4
-  pw_blocks: 1
-  pw_n: 1
+  pw_attention_h: 2
+  pw_n: 4
+  pw_blocks: 4
 
 header_dict:
   in_units: 256
