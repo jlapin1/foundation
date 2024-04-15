@@ -15,7 +15,7 @@ encoder_dict:
   use_charge: False
   use_mass: False
   bias: # 'pairwise' | 'regular' | False | None
-  recycling_its: 1
+  recycling_its: 4
   dropout: 0
   pw_mz_units: 64
   pw_run_units: 64

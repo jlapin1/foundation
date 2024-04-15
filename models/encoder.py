@@ -100,8 +100,8 @@ class Encoder(nn.Module):
             nn.init.normal_(th.empty(1000, running_units), 0, 1), 
             requires_grad=grad
         )
-        self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
-        self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=grad)
+        #self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
+        #self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=grad)
         
         mdim = mz_units//4 if subdivide else mz_units
         self.mdim = mdim
@@ -310,7 +310,7 @@ class Encoder(nn.Module):
         out = self.alpha*out + self.alphacyc*self.recyc(emb)
         
         main = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
-        emb = self.main_alpha*emb + self.main_beta*main['out']
+        emb = main['out']
         
         output = {'emb': emb, 'mask': mask, 'other': main['other']}
         
@@ -319,9 +319,9 @@ class Encoder(nn.Module):
     def RecycleTrainOutput(self, input_dict):
         iterations = th.randint(0, self.its, ())
         with th.no_grad():
-            emb = model(**input_dict, iterations=iterations)['emb']
+            emb = self(**input_dict, iterations=iterations)['emb']
         input_dict['emb'] = emb
-        output = model(**input_dict, iterations=1)
+        output = self(**input_dict, iterations=1)
 
         return output
 
@@ -350,6 +350,7 @@ class Encoder(nn.Module):
             )
         ).to(x.device)
         
+        output = {'emb': emb, 'other': None}
         for _ in range(its):
             output = self.UpdateEmbed(
                 x, 
@@ -367,7 +368,7 @@ class Encoder(nn.Module):
         
         return output
 
-model = Encoder(recycling_its=4)
-inp = th.randn(100,100,2)
-out = model(inp, 2)
+#model = Encoder(recycling_its=4)
+#inp = th.randn(100,100,2)
+#out = model(inp, 2)
 
