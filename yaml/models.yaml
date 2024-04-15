@@ -10,7 +10,7 @@ encoder_dict:
   gate: False
   alphabet: False
   depth: 9
-  ffn_multiplier: 2
+  ffn_multiplier: 4
   prenorm: True
   use_charge: False
   use_mass: False
