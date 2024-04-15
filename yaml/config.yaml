@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Recycling: input and embedding joined and then run through main. Dont add emb to main output"
+header: "My model, 1 iteration, with new evaluation"

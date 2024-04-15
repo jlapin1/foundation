@@ -382,18 +382,16 @@ def train(epochs=1, runlen=50, svfreq=3600):
                     save_all_weights(svdir)
                 svtime = time()
 
-            # Report mean running loss
-            if msg & ((step+1) % config['steps_per_report'] == 0):
-                Line = "Step %d %f\n"%(step+1,np.mean(loss_list))
-                U.message_board(Line, "%s/epochout.txt"%svdir)
-                save_train_loss("%s/train_loss.txt"%svdir, loss_list)
-                allepochlines.append(Line+"\n")
-                loss_list = []
-                
-            # Evaluation
+            # Run evaluation and save training_loss
             if (step+1) % config['steps_per_report'] == 0:
                 eval_loss = evaluation()
-
+                if msg:
+                    Line = "Validation loss at step %d: %.6f\n"%(step+1, eval_loss)
+                    U.message_board(Line, "%s/epochout.txt"%svdir)
+                    save_train_loss("%s/train_loss.txt"%svdir, loss_list)
+                    allepochlines.append(Line)
+                loss_list = []
+                
             start_load = time()
             
             # Arrest training at max_steps

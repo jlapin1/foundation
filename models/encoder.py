@@ -100,9 +100,7 @@ class Encoder(nn.Module):
             nn.init.normal_(th.empty(1000, running_units), 0, 1), 
             requires_grad=grad
         )
-        #self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
-        #self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=grad)
-        
+
         mdim = mz_units//4 if subdivide else mz_units
         self.mdim = mdim
         self.MzSeq = nn.Identity() # # nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
@@ -184,11 +182,14 @@ class Encoder(nn.Module):
         self.norm = mp.get_norm_type(norm_type)
         
         # Recycling embedder
-        self.recyc = nn.Sequential(
-            self.norm(running_units) if prenorm else nn.Identity(),
-            nn.Linear(running_units, running_units) if False else nn.Identity(),
-            nn.Identity() if prenorm else self.norm(running_units)
-        ) if self.its > 1 else nn.Identity()
+        if self.its > 1:
+            #self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
+            #self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=grad)
+            self.recyc = nn.Sequential(
+                self.norm(running_units) if prenorm else nn.Identity(),
+                nn.Linear(running_units, running_units) if False else nn.Identity(),
+                nn.Identity() if prenorm else self.norm(running_units)
+            ) if self.its > 1 else nn.Identity()
         
         # Recycling modulator
         self.alphacyc = ( 
@@ -307,7 +308,8 @@ class Encoder(nn.Module):
         out = self.first(mabemb)
         
         # Reycling the embedding with normalization, perhaps dense transform
-        out = self.alpha*out + self.alphacyc*self.recyc(emb)
+        if self.its > 1:
+            out = self.alpha*out + self.alphacyc*self.recyc(emb)
         
         main = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
         emb = main['out']
