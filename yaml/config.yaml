@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "2 pairstack, 2 heads, 512 pw_mz_units"
+header: "Running new evaluation on migrate branch"
