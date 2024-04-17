@@ -28,4 +28,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "My model, 1 iteration, mult=4"
+header: "Depthcharge again. May have been reported incorrectly last time."

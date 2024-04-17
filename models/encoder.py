@@ -92,15 +92,7 @@ class Encoder(nn.Module):
         self.its = recycling_its
         self.device = device
         
-        # Position modulation
-        grad = True if recycling_its > 1 else False
-        beta =  0.1 if recycling_its > 1 else 1.0
-        self.alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
-        self.embed_0 = nn.Parameter(
-            nn.init.normal_(th.empty(1000, running_units), 0, 1), 
-            requires_grad=grad
-        )
-
+        # m/z Fourier Features
         mdim = mz_units//4 if subdivide else mz_units
         self.mdim = mdim
         self.MzSeq = nn.Identity() # # nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
@@ -183,20 +175,22 @@ class Encoder(nn.Module):
         
         # Recycling embedder
         if self.its > 1:
-            #self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
-            #self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=grad)
+            #grad = True if recycling_its > 1 else False
+            beta =  0.1 if recycling_its > 1 else 1.0
+            self.alpha = nn.Parameter(th.tensor(1.0), requires_grad=True)
+            self.embed_0 = nn.Parameter(
+                nn.init.normal_(th.empty(1000, running_units), 0, 1), 
+                requires_grad=True
+            )
+            self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=True)
+            self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=True)
             self.recyc = nn.Sequential(
                 self.norm(running_units) if prenorm else nn.Identity(),
                 nn.Linear(running_units, running_units) if False else nn.Identity(),
                 nn.Identity() if prenorm else self.norm(running_units)
             ) if self.its > 1 else nn.Identity()
         
-        # Recycling modulator
-        self.alphacyc = ( 
-            nn.Parameter(th.tensor(1. / self.its), requires_grad=True) 
-            if self.its > 1 else 
-            nn.Parameter(th.tensor(1.0), requires_grad=False)
-        )
+            self.alphacyc = nn.Parameter(th.tensor(1. / self.its), requires_grad=True)
         
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
@@ -312,7 +306,11 @@ class Encoder(nn.Module):
             out = self.alpha*out + self.alphacyc*self.recyc(emb)
         
         main = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
-        emb = main['out']
+        
+        if self.its > 1:
+            emb = self.main_alpha*emb + self.main_beta*main['out']
+        else:
+            emb = main['out']
         
         output = {'emb': emb, 'mask': mask, 'other': main['other']}
         
