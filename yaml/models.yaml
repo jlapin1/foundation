@@ -9,11 +9,12 @@ encoder_dict:
   att_h: 8
   gate: False
   alphabet: False
-  depth: 9
+  depth: 6
   ffn_multiplier: 4
   prenorm: True
-  use_charge: False
-  use_mass: False
+  prec_type: inject_pre
+  use_charge: True
+  use_mass: True
   bias: # 'pairwise' | 'regular' | False | None
   dropout: 0
   pw_mz_units: 512

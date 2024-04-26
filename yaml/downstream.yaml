@@ -52,4 +52,25 @@ denovo_ar:
     pool: False
     dropout: 0.25
     alphabet: False
+denovo_diff:
+  head_dict:
+    running_units: 512
+    sequence_length: 30
+    depth: 6
+    d: 64
+    h: 8
+    ffn_multiplier: 4
+    ce_units: 256
+    use_charge: False
+    use_energy: False
+    use_mass: False
+    prec_type: None
+    norm_type: 'layer'
+    prenorm: True
+    preembed: True
+    penultimate_units:
+    pool: False
+    dropout: 0
+    alphabet: False
+  self_condition: True
 

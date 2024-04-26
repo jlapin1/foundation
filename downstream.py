@@ -11,7 +11,7 @@ import numpy as np
 from models.encoder import Encoder
 from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import SequenceHead, ClassifierHead
-from models.decoder import DenovoDecoder
+from models.decoder import DenovoDecoder, DenovoDiffusionDecoder
 import os
 from tqdm import tqdm
 from collections import deque
@@ -267,6 +267,10 @@ class BaseDenovo(DownstreamObj):
                  ):
         super().__init__(config=config, task=task, base_model=base_model, svdir=svdir)
         self.ar = ar
+ 
+        # Dataloader
+        self.data = LoaderHF(**self.config['loader'])
+        self.predcats = np.max(list(self.data.amod_dic.values())) + 1
 
         self.eval_stats = []
 
@@ -366,10 +370,6 @@ class DenovoArDSObj(BaseDenovo):
             svdir=svdir
         )
 
-        # Dataloader
-        self.data = LoaderHF(**self.config['loader'])
-        self.predcats = np.max(list(self.data.amod_dic.values())) + 1
-
         # Head model
         head_dict = self.config[task]['head_dict']
         head_dict['kv_indim'] = self.encoder.run_units
@@ -461,6 +461,115 @@ class DenovoArDSObj(BaseDenovo):
         
         return loss
 
+from models.diffusion.model_utils import create_model_and_diffusion
+
+class DenovoDiffusionObj(BaseDenovo):
+    def __init__(self, config, base_model=None, svdir='./dswts/'):
+        task = 'denovo_diff'
+        super().__init__(
+            config=config, task=task, base_model=base_model, ar=False, 
+            svdir=svdir
+        )
+
+        # Head model
+        head_dict = self.config[task]['head_dict']
+        head_dict['kv_indim'] = self.encoder.run_units
+        self.config['sl'] = self.config['loader']['pep_length'][1]
+        self.head = DenovoDiffusionDecoder(
+            token_dict=self.data.amod_dic, 
+            dec_config=head_dict, 
+            self_condition=config['denovo_diff']['self_condition'],
+            **config['denovo_diff']['head_dict'],
+        )
+        print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
+        if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
+            self.head.load_weights(self.svdir + '/head.wts', device)
+        self.head.to(device)
+
+        # Diffusion object
+        with open("./yaml/diffusion.yaml") as stream:
+            diff_config = yaml.safe_load(stream)
+        diff_config['pad_tok_id'] = self.head.NT
+        diff_config['resume_checkpoint'] = False
+        diff_config['sequence_len'] = self.config['loader']['pep_length'][1] + 1 # b/c of eos token
+        _, self.diff_obj = create_model_and_diffusion(**diff_config)
+
+    def append_null_token(self, intseq):
+        bs, sl = intseq.shape
+        nulls = th.fill(th.empty(bs, dtype=th.int64), self.head.NT).to(intseq.device)
+        out = th.cat([intseq, nulls[:,None]], dim=-1)
+
+        return out
+
+    def replace_with_eos_token(self, intseq, lengths):
+        bs, sl = intseq.shape
+        eos_inds = [th.arange(bs, device=intseq.device), lengths]
+        intseq[eos_inds] = self.head.EOS
+
+        return intseq
+    
+    def inptarg(self, batch):
+        
+        bs, sl = batch['intseq'].shape
+        dec_input = deepcopy(batch['intseq'])
+        target = deepcopy(batch['intseq'])
+
+        # Schedule sampler
+        timesteps = th.empty(bs).uniform_(0, self.diff_obj.num_timesteps).type(th.int32).to(target.device)
+        
+        enc_input = self.encinp(batch, return_mask=True)
+
+        target = self.append_null_token(target)
+        target = self.replace_with_eos_token(target, batch['peplen'])
+
+        loss_mask = self.head.decoder.sequence_mask(batch['peplen'], target.shape[1])
+        loss_mask = loss_mask == 0
+
+        return enc_input, timesteps, target, loss_mask
+
+    def train_step(self, batch, trenc=True):
+        batch = U.Dict2dev(batch, device)
+        enc_input, timesteps, target, loss_mask = self.inptarg(batch)
+
+        self.encoder.to(device)
+        if trenc:
+            self.encoder.train()
+            self.encoder.zero_grad()
+            embedding = self.encoder(**enc_input)
+        else:
+            self.encoder.eval()
+            with th.no_grad():
+                embedding = self.encoder(**enc_input)
+        
+        self.head.train()
+        self.head.decoder.zero_grad()
+        model_kwargs = {
+            'input_ids': None,
+            'decoder_input_ids': target,
+            'loss_mask': loss_mask,
+            'kv_feats': embedding['emb'],
+        }
+        losses = self.diff_obj.training_losses(
+            self.head, 
+            self.global_step,
+            timesteps, 
+            model_kwargs=model_kwargs, 
+            noise=None
+        )
+        
+        loss.backward()
+        
+        if self.config['lr_warmup']:
+            if self.global_step < self.config['lr_warmup_steps']:
+                self.opt_head.param_groups[-1]['lr'] += self.lr_warmup_increment
+                self.opt_encoder.param_groups[-1]['lr'] += self.lr_warmup_increment
+
+        self.opt_head.step()
+        if trenc:
+            self.opt_encoder.step()
+        
+        return loss
+
 if __name__ == '__main__':
 
     # Read downstream yaml
@@ -489,6 +598,6 @@ if __name__ == '__main__':
 
     # Downstream object
     print("Denovo sequencing")
-    D = DenovoArDSObj(dsconfig, svdir=svdir)
+    D = DenovoDiffusionObj(dsconfig, svdir=svdir)
     #out = D.evaluation(dset='val')
     print(D.TrainEval()[-1])

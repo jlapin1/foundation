@@ -275,6 +275,103 @@ class Decoder(nn.Module):
 
         return out
 
+class DenovoDiffusionDecoder(nn.Module):
+    def __init__(self,
+        token_dict,
+        dec_config,
+        running_units=512,
+        d=64,
+        h=8,
+        dropout=0,
+        unit_multiplier=4,
+        depth=6,
+        embedding_dimension=128,
+        alphabet=False,
+        self_condition=True,
+        **kwargs
+    ):
+        super(DenovoDiffusionDecoder, self).__init__()
+        self.outdict = deepcopy(token_dict)
+        self.inpdict = deepcopy(token_dict)
+        self.NT = self.outdict['X']
+        self.inpdict['<SOS>'] = np.max(list(self.inpdict.values())) + 1
+        self.start_token = self.inpdict['<SOS>']
+        #self.inpdict['<h>'] = len(self.inpdict)
+        #self.hidden_token = self.inpdict['<h>']
+        
+        #self.outdict.pop('X')
+        self.outdict['<EOS>'] = np.max(list(self.outdict.values())) + 1
+        self.EOS = self.outdict['<EOS>']
+
+        dec_config['num_inp_tokens'] = np.max(list(self.inpdict.values())) + 1
+        
+        self.rev_outdict = {n:m for m,n in self.outdict.items()}
+        self.predcats = np.max(list(self.outdict.values())) + 1
+        self.scale = Scale(self.outdict)
+
+        self.dec_config = dec_config
+        RU = dec_config['running_units']
+        self.decoder = Decoder(**dec_config)
+        self.use_mass = dec_config['use_mass']
+        self.use_charge = dec_config['use_charge']
+        self.max_sl = dec_config['sequence_length'] + 1
+        self.final = nn.Linear(RU, RU)
+        self.self_condition = self_condition
+
+        self.state_dict = lambda: self.decoder.state_dict()
+
+        self.embed_dim = embedding_dimension
+        
+        # Transforming the x input to input for transformer block
+        # Note: identity in original paper if no self_condition
+        x_input_dim = 2*RU if self_condition else RU
+        self.input_proj_dec = nn.Sequential(
+            nn.Linear(x_input_dim, RU),
+            nn.Tanh(),
+            nn.Linear(RU, RU)
+        )
+        self.lm_head = nn.Linear(self.embed_dim, self.embed_dim)
+
+        # Timestep embedding
+        self.time_embed = nn.Sequential(
+            nn.Linear(embedding_dimension, embedding_dimension),
+            nn.SiLU(),
+            nn.Linear(embedding_dimension, embedding_dimension)
+        )
+
+    def get_embed(self, seq):
+        return self.decoder.seq_emb(seq)
+
+    def get_logits(self, hidden_repr):
+        return self.lm_head(hidden_repr)
+
+    def concat_self_cond(self, x, self_cond):
+        return th.cat([x, self_cond], dim=-1)
+
+    def forward(self, 
+                x,
+                timesteps,
+                kv_feats, 
+                charge=None, 
+                energy=None, 
+                mass=None,
+                seqlen=None, 
+                specmask=None,
+                self_conditions=None,
+                **kwargs
+    ):
+        time_emb = self.time_embed(mp.FourierFeatures(timesteps, 1, 10000, self.embed_dim))
+        if self_conditions is not None:
+            x = self.concat_self_cond(x, self_conditions)
+        emb = self.input_proj_dec(x)
+        out = self.decoder.Main(
+            emb, kv_feats=kv_feats, embed=time_emb, 
+            spec_mask=specmask, seq_mask=None
+        )
+        out = self.final(out)
+
+        return out
+
 class DenovoDecoder:
     def __init__(self, 
         token_dict, 
