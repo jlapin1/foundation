@@ -242,6 +242,9 @@ class DownstreamObj:
             #running_time[1].append(split1 - step_start)
             #running_time[2].append(split2 - split1)
             #running_time[3].append(split3 - split2)
+
+            #if step == 1000:
+            #    break
         
         if self.log and (len(self.running_loss) > 0):
             self.savetxt(self.running_loss)
@@ -307,8 +310,8 @@ class BaseDenovo(DownstreamObj):
             
             out['ce'] += (
                 F.cross_entropy(pred, target, reduction='none')[loss_mask].sum()
-                if self.ar else 
-                self.LossFunction(target, pred, loss_mask).sum()
+                #if self.ar else 
+                #self.LossFunction(target, pred, loss_mask).sum()
             )
                         
             vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='aa')
@@ -378,6 +381,7 @@ class DenovoArDSObj(BaseDenovo):
             token_dict=self.data.amod_dic, dec_config=head_dict, 
             encoder=self.encoder # encoder is set by inherited class
         )
+        self.predict_sequence = self.head.predict_sequence
         print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
             self.head.load_weights(self.svdir + '/head.wts', device)
@@ -471,28 +475,31 @@ class DenovoDiffusionObj(BaseDenovo):
             svdir=svdir
         )
 
+        # Diffusion object
+        with open("./yaml/diffusion.yaml") as stream:
+            diff_config = yaml.safe_load(stream)
+        diff_config['pad_tok_id'] = self.data.amod_dic['X']
+        diff_config['resume_checkpoint'] = False
+        diff_config['sequence_len'] = self.config['loader']['pep_length'][1] + 1 # b/c of eos token
+        _, self.diff_obj = create_model_and_diffusion(**diff_config)
+
         # Head model
         head_dict = self.config[task]['head_dict']
         head_dict['kv_indim'] = self.encoder.run_units
         self.config['sl'] = self.config['loader']['pep_length'][1]
         self.head = DenovoDiffusionDecoder(
             token_dict=self.data.amod_dic, 
-            dec_config=head_dict, 
+            dec_config=head_dict,
+            diff_obj=self.diff_obj,
             self_condition=config['denovo_diff']['self_condition'],
+            clip_denoised=diff_config['denovo_diff']['clip_denoised'],
             **config['denovo_diff']['head_dict'],
         )
         print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
             self.head.load_weights(self.svdir + '/head.wts', device)
         self.head.to(device)
-
-        # Diffusion object
-        with open("./yaml/diffusion.yaml") as stream:
-            diff_config = yaml.safe_load(stream)
-        diff_config['pad_tok_id'] = self.head.NT
-        diff_config['resume_checkpoint'] = False
-        diff_config['sequence_len'] = self.config['loader']['pep_length'][1] + 1 # b/c of eos token
-        _, self.diff_obj = create_model_and_diffusion(**diff_config)
+        self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
 
     def append_null_token(self, intseq):
         bs, sl = intseq.shape
@@ -557,6 +564,7 @@ class DenovoDiffusionObj(BaseDenovo):
             noise=None
         )
         
+        loss = losses['loss'].mean()
         loss.backward()
         
         if self.config['lr_warmup']:
@@ -569,6 +577,8 @@ class DenovoDiffusionObj(BaseDenovo):
             self.opt_encoder.step()
         
         return loss
+
+
 
 if __name__ == '__main__':
 

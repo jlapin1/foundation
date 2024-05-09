@@ -279,6 +279,7 @@ class DenovoDiffusionDecoder(nn.Module):
     def __init__(self,
         token_dict,
         dec_config,
+        diff_obj,
         running_units=512,
         d=64,
         h=8,
@@ -288,11 +289,13 @@ class DenovoDiffusionDecoder(nn.Module):
         embedding_dimension=128,
         alphabet=False,
         self_condition=True,
+        clip_denoised=False,
         **kwargs
     ):
         super(DenovoDiffusionDecoder, self).__init__()
         self.outdict = deepcopy(token_dict)
         self.inpdict = deepcopy(token_dict)
+        self.diff_obj = diff_obj
         self.NT = self.outdict['X']
         self.inpdict['<SOS>'] = np.max(list(self.inpdict.values())) + 1
         self.start_token = self.inpdict['<SOS>']
@@ -311,12 +314,14 @@ class DenovoDiffusionDecoder(nn.Module):
 
         self.dec_config = dec_config
         RU = dec_config['running_units']
+        self.RU = RU
         self.decoder = Decoder(**dec_config)
         self.use_mass = dec_config['use_mass']
         self.use_charge = dec_config['use_charge']
         self.max_sl = dec_config['sequence_length'] + 1
         self.final = nn.Linear(RU, RU)
         self.self_condition = self_condition
+        self.clip_denoised = clip_denoised
 
         self.state_dict = lambda: self.decoder.state_dict()
 
@@ -330,7 +335,13 @@ class DenovoDiffusionDecoder(nn.Module):
             nn.Tanh(),
             nn.Linear(RU, RU)
         )
-        self.lm_head = nn.Linear(self.embed_dim, self.embed_dim)
+
+        # The mapping of tokens to embeddings, and reverse, embeddings
+        # to logits will have a shared weight that is only trained by
+        # forward process.
+        self.lm_head = nn.Linear(running_units, len(self.outdict))
+        with th.no_grad():
+            self.lm_head.weight = self.decoder.seq_emb.weight
 
         # Timestep embedding
         self.time_embed = nn.Sequential(
@@ -371,6 +382,26 @@ class DenovoDiffusionDecoder(nn.Module):
         out = self.final(out)
 
         return out
+
+    def predict_sequence(self, embedding, batch):
+        shape = (
+            embedding['emb'].shape[0],
+            batch['intseq'].shape[1] + 1,
+            self.RU,
+        )
+        model_kwargs = {
+            'kv_feats': embedding['emb']
+        }
+        units = self.diff_obj.p_sample_loop(
+            self,
+            shape,
+            clip_denoised=self.clip_denoised,
+            model_kwargs=model_kwargs,
+        )
+        logits = self.get_logits(units) # bs, 31, predcats
+        final = logits.argmax(dim=-1)
+
+        return final, logits
 
 class DenovoDecoder:
     def __init__(self, 

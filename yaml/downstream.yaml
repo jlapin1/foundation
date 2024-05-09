@@ -10,7 +10,7 @@ epochs: 30
 steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
-log: True # write to downstream_only directory
+log: False # write to downstream_only directory
 save_weights: False
 # Loader options
 loader:
@@ -29,7 +29,7 @@ loader:
   batch_size: 100
   num_workers: 4
   scratch:
-    use: True
+    use: False
     path: /media/storage/scratch/ninespecies/
 # Downstream task specific options
 denovo_ar:
