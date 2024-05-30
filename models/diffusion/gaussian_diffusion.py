@@ -39,7 +39,7 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
         # diffusion steps.
         scale = 1000 / num_diffusion_timesteps
         beta_start = scale * 0.0001
-        beta_end = scale * 0.02
+        beta_end = scale * 0.02 # 0.02
         return np.linspace(beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64)
     elif schedule_name == "cosine":
         return betas_for_alpha_bar(
@@ -213,6 +213,11 @@ class GaussianDiffusion:
         print('schedule update stride', self._loss_history_update_stride)
         self._loss_history = np.ones((self.num_timesteps//self._loss_interp_granu, self.token_max_length)) * np.linspace(0, 0.5, self.num_timesteps//self._loss_interp_granu)[:,None]
         self._loss_history_count = np.ones((self.num_timesteps//self._loss_interp_granu, self.token_max_length))
+        
+        # My loss tracking
+        self.my_loss_history = np.zeros((self.num_timesteps, 3))
+        self.my_loss_count = np.zeros((self.num_timesteps,))
+        self.my_img_save = []
 
         alphas = 1.0 - betas
 
@@ -430,7 +435,7 @@ class GaussianDiffusion:
             _loss_log[t0_mask] = t0_loss_log_[t0_mask]
             _loss_log[input_ids==self.pad_tok_id] = 0
             self._loss_history_update(ts, _loss_log, input_ids!=self.pad_tok_id, training_step)
-
+        
         out_mean, _, _ = self.q_mean_variance(
             x_start, th.LongTensor([self.num_timesteps - 1]).to(x_start.device)
         )
@@ -439,6 +444,14 @@ class GaussianDiffusion:
         decoder_nll = self.token_discrete_loss(x_start, get_logits, input_ids, mask=loss_mask)
 
         terms["loss"] = terms["mse"] + (decoder_nll + tT_loss)
+
+        # My loss tracking
+        ts_cpu = ts.detach().cpu()
+        self.my_loss_history[ts_cpu] = (
+            np.take(self.my_loss_history, ts_cpu, axis=0) + 
+            th.stack([terms['mse'].detach().cpu(), decoder_nll.detach().cpu(), tT_loss.detach().cpu()]).numpy().T
+        )
+        self.my_loss_count[ts_cpu] += 1
 
         return terms
 
@@ -590,6 +603,7 @@ class GaussianDiffusion:
             model_mean = model_output
         elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
             if self.model_mean_type == ModelMeanType.START_X:
+                pred_xstart_original = model_output
                 pred_xstart = process_xstart(model_output)
             else:
                 pred_xstart = process_xstart(
@@ -605,6 +619,7 @@ class GaussianDiffusion:
             "variance": model_variance,
             "log_variance": model_log_variance,
             "pred_xstart": pred_xstart,
+            "pred_xstart_orig": pred_xstart_original
         }
 
     def _predict_xstart_from_eps(self, x_t, t, eps):
@@ -754,6 +769,7 @@ class GaussianDiffusion:
                 )
                 yield out
                 img = out["sample"]
+                self.my_img_save.append(out['pred_xstart'])
 
             
     def p_sample_loop_progressive_mix_sample(

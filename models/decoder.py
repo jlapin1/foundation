@@ -10,6 +10,7 @@ import collections
 import einops
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import heapq
+from models.diffusion.gaussian_diffusion import _extract_into_tensor
 
 def init_decoder_weights(module):
     if hasattr(module, 'first'):
@@ -359,6 +360,20 @@ class DenovoDiffusionDecoder(nn.Module):
     def concat_self_cond(self, x, self_cond):
         return th.cat([x, self_cond], dim=-1)
 
+    def append_null_token(self, intseq):
+        bs, sl = intseq.shape
+        nulls = th.fill(th.empty(bs, dtype=th.int64), self.NT).to(intseq.device)
+        out = th.cat([intseq, nulls[:,None]], dim=-1)
+
+        return out
+
+    def replace_with_eos_token(self, intseq, lengths):
+        bs, sl = intseq.shape
+        eos_inds = [th.arange(bs, device=intseq.device), lengths]
+        intseq[eos_inds] = self.EOS
+
+        return intseq
+
     def forward(self, 
                 x,
                 timesteps,
@@ -392,9 +407,29 @@ class DenovoDiffusionDecoder(nn.Module):
         model_kwargs = {
             'kv_feats': embedding['emb']
         }
+
+        # Create fully noised real data
+        device = model_kwargs['kv_feats'].device
+        noise = th.randn(*shape, device=device)
+        target = self.append_null_token(batch['intseq'])
+        target = self.replace_with_eos_token(target, batch['peplen'])
+        loss_mask = self.decoder.sequence_mask(batch['peplen'], target.shape[1])
+        loss_mask = loss_mask == 0
+        x_start_mean = self.get_embed(target)
+        std = _extract_into_tensor(
+            self.diff_obj.sqrt_one_minus_alphas_cumprod,
+            th.tensor([0]).to(x_start_mean.device),
+            x_start_mean.shape,
+        )
+        x_start = self.diff_obj.get_x_start(x_start_mean, std)
+        ts = th.tensor(x_start.shape[0]*[self.diff_obj.num_timesteps-1]).to(x_start.device)
+        noise = self.diff_obj.q_sample(x_start, ts, noise=noise)
+
         units = self.diff_obj.p_sample_loop(
             self,
             shape,
+            noise=noise,
+            #denoised_fn=self.clamp,
             clip_denoised=self.clip_denoised,
             model_kwargs=model_kwargs,
         )
@@ -402,6 +437,13 @@ class DenovoDiffusionDecoder(nn.Module):
         final = logits.argmax(dim=-1)
 
         return final, logits
+
+    def clamp(self, x_0, *args):
+        embedding = self.lm_head.weight # 24, 512
+        dist = (x_0[...,None,:] - embedding[None, None]).square().sum(-1) # bs, 31, 24
+        input_ids = dist.argmin(-1)
+        #input_ids = self.get_logits(x_0).argmax(-1) # bs, 31
+        return self.get_embed(input_ids)
 
 class DenovoDecoder:
     def __init__(self, 

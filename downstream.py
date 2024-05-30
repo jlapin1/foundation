@@ -243,7 +243,7 @@ class DownstreamObj:
             #running_time[2].append(split2 - split1)
             #running_time[3].append(split3 - split2)
 
-            #if step == 1000:
+            #if step == 4000:
             #    break
         
         if self.log and (len(self.running_loss) > 0):
@@ -321,6 +321,8 @@ class BaseDenovo(DownstreamObj):
             roc_stats = U.roc_apply_threshold(**vecs, threshold=0.9)
             for metric in roc_stats.keys():
                 tots[metric] += roc_stats[metric]
+
+            self.on_eval_step_end(target, loss_mask)
         
         steps = i+1
         totsz = self.config['loader']['batch_size']*steps
@@ -329,6 +331,8 @@ class BaseDenovo(DownstreamObj):
         out['auprc'] = out['auprc'] / steps
         for metric in roc_stats.keys():
             out[metric] = tots[metric] /  steps
+        
+        self.on_eval_end()
 
         return out
 
@@ -339,30 +343,34 @@ class BaseDenovo(DownstreamObj):
         for i in range(self.config['epochs']):
             self.data.dataset['train'].set_epoch(i)
             self.train_epoch()
+            self.on_train_epoch_end()
             
-            out = self.evaluation(dset=eval_dset)
-            
-            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
-                (i,) + tuple(out.values())
-            )
-            if out['recall']>highscore:
-                highline = line
-                highscore = out['recall']
-            line += " (%.1f s)"%(time()-start_time)
-            lines.append(line)
-            print("\r"+line)
+            if i >= 2:
+                out = self.evaluation(dset=eval_dset)
+                #import sys
+                #sys.exit()
+                
+                line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
+                    (i,) + tuple(out.values())
+                )
+                if out['recall']>highscore:
+                    highline = line
+                    highscore = out['recall']
+                line += " (%.1f s)"%(time()-start_time)
+                lines.append(line)
+                print("\r"+line)
 
-            if self.config['save_weights']:
-                self.save_head(self.svdir+'weights/head.wts')
-                if self.config['train_encoder']:
-                    self.save_encoder(self.svdir+'weights/encoder.wts')
+                if self.config['save_weights']:
+                    self.save_head(self.svdir+'weights/head.wts')
+                    if self.config['train_encoder']:
+                        self.save_encoder(self.svdir+'weights/encoder.wts')
+                
+                self.eval_stats.append(list(out.values()))
+                
+                # Save data
+                if self.log:
+                    self.savetxt(train_loss=None, eval_stats=np.array(self.eval_stats))
             
-            self.eval_stats.append(list(out.values()))
-            
-            # Save data
-            if self.log:
-                self.savetxt(train_loss=None, eval_stats=np.array(self.eval_stats))
-        
         return lines, highline
 
 class DenovoArDSObj(BaseDenovo):
@@ -492,7 +500,7 @@ class DenovoDiffusionObj(BaseDenovo):
             dec_config=head_dict,
             diff_obj=self.diff_obj,
             self_condition=config['denovo_diff']['self_condition'],
-            clip_denoised=diff_config['denovo_diff']['clip_denoised'],
+            clip_denoised=diff_config['clip_denoised'],
             **config['denovo_diff']['head_dict'],
         )
         print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
@@ -500,6 +508,7 @@ class DenovoDiffusionObj(BaseDenovo):
             self.head.load_weights(self.svdir + '/head.wts', device)
         self.head.to(device)
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
+        self.eval_score = []
 
     def append_null_token(self, intseq):
         bs, sl = intseq.shape
@@ -577,8 +586,27 @@ class DenovoDiffusionObj(BaseDenovo):
             self.opt_encoder.step()
         
         return loss
+   
+    def on_train_epoch_end(self):
+        avg_losses = self.diff_obj.my_loss_history / (self.diff_obj.my_loss_count+1e-7)[...,None]
+        np.savetxt("train_loss_by_timestep.tab", avg_losses, delimiter='\t', fmt='%.8f')
+        self.diff_obj.my_loss_history = np.zeros((self.diff_obj.num_timesteps, 3))
+        self.diff_obj.my_loss_count = np.zeros((self.diff_obj.num_timesteps,))
+    
+    def on_eval_step_end(self, target, mask):
+        mses = np.zeros((target.shape[0], self.diff_obj.num_timesteps))
+        targ = self.head.get_embed(target)
+        for i, img in enumerate(self.diff_obj.my_img_save):
+            mse = (mask[...,None]*(img-targ)).square().sum(dim=[1,2]) / mask.sum(-1) / img.shape[-1]
+            mses[:, i] = mse.detach().cpu().numpy()
+        self.diff_obj.my_img_save = []
+        self.eval_score.append(mses)
 
-
+    def on_eval_end(self):
+        ganz_batch = np.concatenate(self.eval_score, axis=0)
+        ganz_batch_mean = ganz_batch.mean(0)
+        self.eval_score = []
+        np.savetxt("eval_mse_by_timestep.tab", ganz_batch_mean, delimiter='\n', fmt='%.6f')
 
 if __name__ == '__main__':
 
