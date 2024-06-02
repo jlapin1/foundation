@@ -2,8 +2,8 @@ sequence_len: 21
 learn_sigma: False
 sigma_small: False
 class_cond: False
-diffusion_steps: 100 # 2000
-noise_schedule: linear
+diffusion_steps: 200 # 2000
+noise_schedule: sqrt
 timestep_respacing: ""
 use_kl: False
 predict_xstart: True

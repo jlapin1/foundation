@@ -345,31 +345,31 @@ class BaseDenovo(DownstreamObj):
             self.train_epoch()
             self.on_train_epoch_end()
             
-            if i >= 2:
-                out = self.evaluation(dset=eval_dset)
-                #import sys
-                #sys.exit()
-                
-                line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
-                    (i,) + tuple(out.values())
-                )
-                if out['recall']>highscore:
-                    highline = line
-                    highscore = out['recall']
-                line += " (%.1f s)"%(time()-start_time)
-                lines.append(line)
-                print("\r"+line)
+            #if i >= 2:
+            out = self.evaluation(dset=eval_dset)
+            #import sys
+            #sys.exit()
+            
+            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
+                (i,) + tuple(out.values())
+            )
+            if out['recall']>highscore:
+                highline = line
+                highscore = out['recall']
+            line += " (%.1f s)"%(time()-start_time)
+            lines.append(line)
+            print("\r"+line)
 
-                if self.config['save_weights']:
-                    self.save_head(self.svdir+'weights/head.wts')
-                    if self.config['train_encoder']:
-                        self.save_encoder(self.svdir+'weights/encoder.wts')
-                
-                self.eval_stats.append(list(out.values()))
-                
-                # Save data
-                if self.log:
-                    self.savetxt(train_loss=None, eval_stats=np.array(self.eval_stats))
+            if self.config['save_weights']:
+                self.save_head(self.svdir+'weights/head.wts')
+                if self.config['train_encoder']:
+                    self.save_encoder(self.svdir+'weights/encoder.wts')
+            
+            self.eval_stats.append(list(out.values()))
+            
+            # Save data
+            if self.log:
+                self.savetxt(train_loss=None, eval_stats=np.array(self.eval_stats))
             
         return lines, highline
 
