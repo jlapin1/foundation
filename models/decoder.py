@@ -422,10 +422,11 @@ class DenovoDiffusionDecoder(nn.Module):
             x_start_mean.shape,
         )
         x_start = self.diff_obj.get_x_start(x_start_mean, std)
-        ts = th.tensor(x_start.shape[0]*[self.diff_obj.num_timesteps-1]).to(x_start.device)
+        #ts = th.tensor(x_start.shape[0]*[self.diff_obj.num_timesteps-1]).to(x_start.device)
+        ts = th.tensor(x_start.shape[0]*[50-1]).to(x_start.device)
         noise = self.diff_obj.q_sample(x_start, ts, noise=noise)
 
-        units = self.diff_obj.p_sample_loop(
+        units = self.diff_obj.my_p_sample_loop(
             self,
             shape,
             noise=noise,

@@ -1004,6 +1004,94 @@ class GaussianDiffusion:
                 final = sample
 
             return final["sample"]
+    
+    def my_p_sample_loop(
+        self,
+        model,
+        shape,
+        noise=None,
+        clip_denoised=True,
+        denoised_fn=None,
+        model_kwargs=None,
+        device=None,
+        progress=False,
+        top_p=None,
+        tokenizer=None,
+        log_verbose=False,
+        logging_freq: int = 100,
+        num_samples_to_show: int = 1,
+        langevin_fn=None,
+        decoder_inputs = None,
+        generate_by_q=False,
+        generate_by_mix=False,
+        generate_by_mix_prob=0,
+        generate_by_mix_part=0,
+    ):
+        loop_fn = self.p_sample_loop_progressive
+        """sample = loop_fn(
+            model,
+            shape,
+            noise=noise,
+            clip_denoised=clip_denoised,
+            denoised_fn=denoised_fn,
+            model_kwargs=model_kwargs,
+            device=device,
+            progress=progress,
+            top_p=top_p,
+            langevin_func=langevin_fn,
+            decoder_inputs=decoder_inputs,
+        )"""
+        if device is None:
+            device = next(model.parameters()).device
+        assert isinstance(shape, (tuple, list))
+        if noise is not None:
+            img = noise
+        else:
+            img = th.randn(*shape, device=device)
+
+        # PLACE CODE HERE: STEPPING BACK NOT FROM AN INTERMEDIATE STARTING STEP
+        T = 50
+        indices = list(range(T))[::-1]
+
+        if progress:
+            # Lazy import so that we don't depend on tqdm.
+            from tqdm.auto import tqdm
+
+            indices = tqdm(indices)
+        
+        #print(model_kwargs.keys())
+        if "kv_feats" not in model_kwargs:
+            t = th.tensor([T] * shape[0], device=device)
+            if 'self_conditions' not in model_kwargs:
+                model_kwargs['self_conditions'] = th.zeros_like(img)
+            with th.no_grad():
+                model_kwargs["kv_feats"] = (model.forward_encoder(decoder_inputs_embeds = img, 
+                                                                        timesteps = self._scale_timesteps(t), 
+                                                                        **model_kwargs), )
+            model_kwargs.pop('input_ids')
+            if 'self_conditions' in model_kwargs:
+                model_kwargs.pop('self_conditions')
+
+        for i in indices:
+            t = th.tensor([i] * shape[0], device=device)
+            
+            with th.no_grad():
+                out = self.p_sample(
+                    model,
+                    img,
+                    t,
+                    clip_denoised=clip_denoised,
+                    denoised_fn=denoised_fn,
+                    model_kwargs=model_kwargs,
+                    top_p=top_p,
+                )
+                img = out["sample"]
+                self.my_img_save.append(out['pred_xstart'])
+
+
+        final = out
+
+        return final['sample']
 
     def _vb_terms_bpd_e2e(
         self,
