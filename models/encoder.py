@@ -211,6 +211,7 @@ class Encoder(nn.Module):
         Mz, ab = th.split(x, 1, -1)
         
         Mz = Mz.squeeze()
+        if x.shape[0] == 1: Mz = Mz[None] # for batch_size=1
         if self.subdivide:
             mz = mp.subdivide_float(Mz)
             mz_emb = mp.FourierFeatures(mz, 1, 500, self.mdim)

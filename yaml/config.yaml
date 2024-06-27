@@ -2,7 +2,7 @@ seed:
 max_peaks: 100
 epochs: 1
 steps_per_report: 10000
-max_steps: 200000
+max_steps: 1e10
 eval_steps: 0
 batch_size: 100
 lr: 4e-5
@@ -21,11 +21,11 @@ tasks:
   #- maldi
 downstream:
   #- denovo_ar
-load: False
-loadpath: save/2024-03-23_18-49-24.152971/weights/
+load: True
+loadpath: save/2024-06-20_11-47-23/weights/
 log: True
-svwts: False
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Running new evaluation on migrate branch"
+header: "Saving base model for super resolution test - fixed head saving bug"

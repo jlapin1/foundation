@@ -113,10 +113,9 @@ optencoder = Adam(encoder.parameters(), config['lr'])
 
 def save_all_weights(svdir):
     U.save_full_model(encoder, optencoder, svdir)
-    # Save all header weights in one file
-    th.save(header.state_dict(), "%s/weights/model_%s.wts"%(svdir, header.name))
     # Save header optimizer weights individually
     for task_name in config['tasks']:
+        th.save(header.heads[task_name].state_dict(), "%s/weights/head_%s.wts"%(svdir, task_name))
         # optimizer.name should have opt_ already in it (see Header in models)
         fn = '%s/weights/opt_%s.wts'%(svdir, task_name)
         U.save_optimizer_state(header.opts[task_name], fn)
