@@ -1050,7 +1050,7 @@ class GaussianDiffusion:
             img = th.randn(*shape, device=device)
 
         # PLACE CODE HERE: STEPPING BACK NOT FROM AN INTERMEDIATE STARTING STEP
-        T = 50
+        T = 197
         indices = list(range(T))[::-1]
 
         if progress:
