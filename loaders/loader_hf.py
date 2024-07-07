@@ -98,6 +98,7 @@ class LoaderHF:
             #for key in exceptions.keys():
             #    if exceptions[key] in self.amod_dic.keys():
             #        self.amod_dic[key] = self.amod_dic[exceptions[key]]
+            self.amod_dic_rev = {b:a for a,b in self.amod_dic.items()}
         
         # Dataset
         dataset = load_dataset(

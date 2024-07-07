@@ -316,7 +316,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
         evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
     
     loss_list = []
-    max_step_tick=False
+    max_steps_tick=False
     for epoch in range(epochs):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
