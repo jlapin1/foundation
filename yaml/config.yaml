@@ -22,10 +22,10 @@ tasks:
 downstream:
   #- denovo_ar
 load: True
-loadpath: save/2024-06-20_11-47-23/weights/
+loadpath: save/2024-06-21_09-54-54/weights/
 log: True
 svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Saving base model for super resolution test - fixed head saving bug"
+header: "Saving base model for super resolution test - 0.05 std"

@@ -126,7 +126,8 @@ if config['load']:
     U.load_optimizer_state(
         optencoder, ldpth + 'opt_encopt.wts', device
     )
-    header.load_state_dict(th.load(ldpth + 'model_head.wts', map_location=device))
+    #header.load_state_dict(th.load(ldpth + 'model_head.wts', map_location=device))
+    header.heads['trinary_mz'].load_state_dict(th.load(os.path.join(ldpth, 'head_trinary_mz.wts'), map_location=device))
     for task_name in config['tasks']:
         # ASSUMPTION: header optimizers follow name convention 
         # opt_{task}.wts.npy
