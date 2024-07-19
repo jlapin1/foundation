@@ -84,8 +84,8 @@ class DownstreamObj:
                 yaml_config_path = self.config['pretrain_path']+'/yaml/config.yaml'
                 yaml_model_path = self.config['pretrain_path']+'/yaml/models.yaml'
                 if self.config['dswts']:
-                    assert os.path.exists(self.config['pretrain_path']+'/dswts')
-                    weights_path = self.config['pretrain_path']+'/dswts/encoder.wts'
+                    assert os.path.exists(self.config['pretrain_path']+'/weights')
+                    weights_path = self.config['pretrain_path']+'/weights/encoder.wts'
                 else:
                     weights_path = self.config['pretrain_path']+'/weights/model_enc.wts'
         
@@ -505,7 +505,7 @@ class DenovoDiffusionObj(BaseDenovo):
         )
         print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
-            self.head.load_weights(self.svdir + '/head.wts', device)
+            self.head.decoder.load_state_dict(th.load(self.svdir + '/head.wts', map_location=device))
         self.head.to(device)
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
         self.eval_score = []
@@ -620,8 +620,8 @@ if __name__ == '__main__':
     
     # Shorthand
     bs = dsconfig['batch_size']
-    msg = config['log']
-    swt = config['svwts']
+    msg = dsconfig['log']
+    swt = dsconfig['save_weights']
     
     # Create experiment directory in save/downstream_only/
     if (msg or swt):
@@ -631,6 +631,8 @@ if __name__ == '__main__':
         with open(svdir + '/experiment_header', 'w') as f:
             f.write("Experiment header: " + config['header'])
         print("Experiment is writing to directory %s"%svdir)
+    elif dsconfig['pretrain_path'] is not None:
+        svdir = os.path.join(dsconfig['pretrain_path'], 'weights')
     else:
         svdir = './'
 

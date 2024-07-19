@@ -324,7 +324,7 @@ class DenovoDiffusionDecoder(nn.Module):
         self.self_condition = self_condition
         self.clip_denoised = clip_denoised
 
-        self.state_dict = lambda: self.decoder.state_dict()
+        #self.state_dict = lambda: self.decoder.state_dict()
 
         self.embed_dim = embedding_dimension
         
@@ -423,7 +423,7 @@ class DenovoDiffusionDecoder(nn.Module):
         )
         x_start = self.diff_obj.get_x_start(x_start_mean, std)
         #ts = th.tensor(x_start.shape[0]*[self.diff_obj.num_timesteps-1]).to(x_start.device)
-        ts = th.tensor(x_start.shape[0]*[197-1]).to(x_start.device)
+        ts = th.tensor(x_start.shape[0]*[995-1]).to(x_start.device)
         noise = self.diff_obj.q_sample(x_start, ts, noise=noise)
 
         units = self.diff_obj.my_p_sample_loop(
