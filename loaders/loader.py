@@ -28,6 +28,10 @@ def gather_file_md(filepath, typ=None):
             
             if typ=='mgf':
                 if line == 'BEGIN IONS':
+                    # If the last spectrum had no peaks (or no charge), delete it
+                    if spec_ticker in spectra:
+                        del(spectra[spec_ticker])
+
                     spectra[spec_ticker] = {}
                 elif line.split('=')[0] == 'SCANS':
                     scan = int(line.split('=')[-1])
@@ -51,16 +55,15 @@ def gather_file_md(filepath, typ=None):
                         peak_ticker += 1
                         line = f.readline().strip()
                     spectra[spec_ticker]['nmpks'] = peak_ticker
-                    # turn m/z into mass
-                    #spectra[spec_ticker]['mass'] *= (
-                    #    spectra[spec_ticker]['charge']
-                    #)
-
-                    assert len(spectra[spec_ticker].keys()) >= 6
-                    spec_ticker += 1
+                    
+                    if (
+                        'charge' in spectra[spec_ticker] and
+                        'mass' in spectra[spec_ticker]
+                    ):
+                        spec_ticker += 1
                 
                 pos_prev = pos
-            
+                
             elif typ=='msp':
 
                 # Start of a spectrum entry: label
@@ -109,7 +112,14 @@ def gather_file_md(filepath, typ=None):
                     spec_ticker += 1
             else:
                 NotImplementedError("File type not implemented yet.")
-
+    
+    # If the very last spectrum had no peaks, delete it
+    tick = max(list(spectra.keys()))
+    if (
+        'pos' not in spectra[tick] or
+        'charge' not in spectra[tick]
+    ):
+        del(spectra[tick])
     return spectra
 
 def gather_evid_data(filepath):
