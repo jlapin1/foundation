@@ -355,7 +355,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
                 all_loss.append(T[random_task].running_loss['main'][-1])
             
             # Stdout
-            if step%50==0:
+            if step%10==0:
                 means = tuple([
                     task.calc_avg_running_loss()['main']
                     for task_name, task in T.items()

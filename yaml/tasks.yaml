@@ -1,6 +1,6 @@
 trinary_mz:
   freq: 0.15
-  stdev: 0.5
+  stdev: 0.1
 trinary_ab:
   freq: 0.15
   stdev: 0.05
