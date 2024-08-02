@@ -3,7 +3,7 @@ encoder_dict:
   norm_type: 'layer'
   mz_units: 1024
   ab_units: 256
-  subdivide: False
+  subdivide: True
   running_units: 512
   att_d: 64
   att_h: 8

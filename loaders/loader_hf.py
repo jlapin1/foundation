@@ -22,7 +22,7 @@ def map_fn(example, dic=None, top=100, max_seq=50):
     example['charge'] = th.tensor(example['charge'], dtype=th.int32)
     example['mass'] = th.tensor(example['mass'], dtype=th.float32)
     example['length'] = th.tensor(length, dtype=th.int32)
-    if len(example['sequence']) > 0:
+    if 'sequence' in example.keys():
         intseq = [dic[m] for m in example['sequence']]
         intseq += (max_seq-len(intseq))*[dic['X']]
         example['intseq'] = th.tensor(intseq, dtype=th.int32)
@@ -114,6 +114,9 @@ class LoaderHF:
                 (len(example['sequence']) >= kwargs['pep_length'][0]) &
                 (len(example['sequence']) <= kwargs['pep_length'][1])
             )
+            max_seq = kwargs['pep_length'][1]
+        else:
+            max_seq = None
         # Filter for charge
         if 'charge' in kwargs.keys():
             dataset = dataset.filter(
@@ -129,9 +132,9 @@ class LoaderHF:
                 example,
                 self.amod_dic,
                 top=top_pks, 
-                max_seq=kwargs['pep_length'][1]
+                max_seq=max_seq
             ), 
-            remove_columns=['name', 'sequence']
+            remove_columns=kwargs['remove_columns'],
         )
         
         # Shuffle the dataset

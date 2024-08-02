@@ -331,6 +331,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
             
             # Train model for a step
             TT=time()
+            #T['trinary_mz'].stdev = 0.5*np.exp(-6.9314718055994526e-06*float(encoder.global_step))
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
             loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
