@@ -134,7 +134,7 @@ class LoaderHF:
                 top=top_pks, 
                 max_seq=max_seq
             ), 
-            remove_columns=kwargs['remove_columns'],
+            remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
         
         # Shuffle the dataset
