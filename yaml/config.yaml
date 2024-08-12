@@ -28,4 +28,4 @@ svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Saving base model for super resolution test - PretrainV2"
+header: "Normal downstream with single aa tokens"
