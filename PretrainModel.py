@@ -320,8 +320,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
     svtime = time()
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
     
-    if config['activation_steps']>0: 
-        evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
+    #if config['activation_steps']>0: 
+    #    evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
     
     loss_list = []
     max_steps_tick=False

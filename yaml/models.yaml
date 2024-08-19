@@ -10,7 +10,7 @@ encoder_dict:
   gate: False
   alphabet: False
   depth: 9
-  ffn_multiplier: 4
+  ffn_multiplier: 3
   prenorm: True
   use_charge: False
   use_mass: False
@@ -65,7 +65,7 @@ header_dict:
       penult_units: 512
       activation: tanh
       spectrum_wise: False
-      scale: 0.1
+      scale: 1.0
 
 
 

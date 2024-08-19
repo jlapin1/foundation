@@ -29,4 +29,4 @@ svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Super resolution - tanh regressor scale=0.1"
+header: "Super resolution - tanh regressor 3 recycling iterations"
