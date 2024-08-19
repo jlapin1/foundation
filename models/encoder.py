@@ -19,8 +19,12 @@ def init_encoder_weights(module):
         #maxmin = (6 / (module.qkv.in_features + module.d))**0.5
         #module.qkv.weight = I.xavier_uniform_(module.qkv.weight)#, -maxmin, maxmin)
         #module.Wo.weight = I.xavier_uniform_(module.Wo.weight)
+        #module.qkv.weight = I.uniform_(module.qkv.weight, -0.03, 0.03)
+        #module.Wo.weight = I.uniform_(module.Wo.weight, -0.03, 0.03)
         module.qkv.weight = I.normal_(module.qkv.weight, 0.0, (2/3)*module.indim**-0.5)
         module.Wo.weight = I.normal_(module.Wo.weight, 0.0, (1/3)*(module.h*module.d)**-0.5)
+        module.qkv.bias = I.zeros_(module.qkv.bias)
+        module.Wo.bias = I.zeros_(module.Wo.bias)
         if hasattr(module, 'Wb'):
             module.Wb.weight = I.zeros_(module.Wb.weight)
             module.Wb.bias = I.zeros_(module.Wb.bias)
@@ -103,16 +107,19 @@ class Encoder(nn.Module):
             mdimpw = self.pw_mzunits//4 if subdivide else self.pw_mzunits
             self.mdimpw = mdimpw
             self.MzpwSeq = nn.Identity()#Sequential(nn.Linear(mdimpw, mdimpw), nn.SiLU())
-            self.pwfirst = nn.Linear(self.pw_mzunits, self.pw_runits)
-            self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True)
+            self.pwfirst = nn.Identity()#nn.Linear(self.pw_mzunits, self.pw_runits)
+            #self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True)
             #self.pospw = pw.RelPos(sequence_length, self.pw_runits)
             # Evolve features
-            multdict = {'in_dim': self.pw_runits, 'c': 128}
-            attdict = {'in_dim': self.pw_runits, 'c': pw_attention_ch, 'h': pw_attention_h}
-            ptdict = {'in_dim': self.pw_runits, 'n': pw_n}
+            #multdict = {'in_dim': self.pw_runits, 'c': 128}
+            #attdict = {'in_dim': self.pw_runits, 'c': pw_attention_ch, 'h': pw_attention_h}
+            #ptdict = {'in_dim': self.pw_runits, 'n': pw_n}
             self.PwSeq = nn.Sequential(*[
-                pw.PairStack(multdict, attdict, ptdict, drop_rate=0)
-                for m in range(pw_blocks)
+                #pw.PairStack(multdict, attdict, ptdict, drop_rate=0)
+                #for m in range(pw_blocks)
+                nn.Linear(self.pw_mzunits, ffn_multiplier*self.pw_runits),
+                nn.SiLU(),
+                nn.Linear(ffn_multiplier*self.pw_runits, self.pw_runits)
             ])
 
         # charge/energy/mass embedding transformation
@@ -194,10 +201,10 @@ class Encoder(nn.Module):
         
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
-        pos = mp.FourierFeatures(
-            th.arange(1000, dtype=th.float32), 1, 5000, self.run_units,
-        )
-        self.pos = nn.Parameter(pos, requires_grad=False)
+        #pos = mp.FourierFeatures(
+        #    th.arange(1000, dtype=th.float32), 1, 5000, self.run_units,
+        #)
+        #self.pos = nn.Parameter(pos, requires_grad=False)
 
         self.apply(init_encoder_weights)
     
@@ -208,6 +215,7 @@ class Encoder(nn.Module):
         Mz, ab = th.split(x, 1, -1)
         
         Mz = Mz.squeeze()
+        if x.shape[0] == 1: Mz = Mz[None] # for batch_size=1
         if self.subdivide:
             mz = mp.subdivide_float(Mz)
             mz_emb = mp.FourierFeatures(mz, 1, 500, self.mdim)
@@ -265,7 +273,7 @@ class Encoder(nn.Module):
                     return_full=False,
                     ):
         # Create mask
-        if length!=None:
+        if length != None:
             grid = th.tile(
                 th.arange(self.sl, dtype=th.int32)[None].to(x.device), 
                 (x.shape[0], 1)

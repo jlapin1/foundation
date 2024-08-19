@@ -1,4 +1,4 @@
-encoder_name: depthcharge # depthcharge | {other}
+encoder_name: mine # depthcharge | {other}
 encoder_dict:
   norm_type: 'layer'
   mz_units: 512
@@ -10,19 +10,19 @@ encoder_dict:
   gate: False
   alphabet: False
   depth: 9
-  ffn_multiplier: 2
+  ffn_multiplier: 4
   prenorm: True
   use_charge: False
   use_mass: False
-  bias: # 'pairwise' | 'regular' | False | None
+  bias: pairwise # 'pairwise' | 'regular' | False | None
   recycling_its: 4
-  dropout: 0
-  pw_mz_units: 64
+  dropout: 0.25
+  pw_mz_units: 512
   pw_run_units: 64
   pw_attention_ch: 32
-  pw_attention_h: 4
-  pw_blocks: 1
+  pw_attention_h: 2
   pw_n: 4
+  pw_blocks: 2
 
 header_dict:
   in_units: 256
@@ -61,6 +61,11 @@ header_dict:
       num_classes: 2
       norm_type: batch
       penult_units: 512
+    resid_regr:
+      penult_units: 512
+      activation: tanh
+      spectrum_wise: False
+      scale: 0.1
 
 
 

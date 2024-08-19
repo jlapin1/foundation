@@ -307,7 +307,7 @@ class BaseDenovo(DownstreamObj):
                 self.LossFunction(target, pred, loss_mask).sum()
             )
                         
-            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='aa')
+            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='pep')
             out['old_recall'] += U.roc_apply_threshold(**vecs, threshold=0)['recall']*vecs['precision'].shape[0]
             old_recall_sum += vecs['precision'].shape[0]
             out['auprc'] += auprc

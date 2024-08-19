@@ -376,6 +376,59 @@ class Maldi(Task):
 
         return loss
 
+class ResidualRegression(Task):
+    def __init__(self, freq=0.15, stdev=1, clip_vals=None):
+        super().__init__('mz')
+        self.freq = freq
+        self.stdev = stdev
+        self.clip_op = lambda x: (
+            x if clip_vals==None else x.clip(*clip_vals)
+        )
+
+    def inptarg(self, batch):
+
+        dev = batch['mz'].device
+
+        freq = self.freq
+        std = self.stdev
+
+        # MODEL INPUT: Corrupt mz
+        mzab = deepcopy(batch[self.typ])
+        
+        # Random sequence indices to change
+        inds_boolean = th.empty(mzab.shape, device=dev).uniform_(0, 1) < freq
+        inds = th.cat(th.where(inds_boolean)).reshape(2, -1).T
+        
+        # Get their mz values
+        means = mzab[inds_boolean]
+        
+        # Generate normal distributions for inds, centered on original value
+        updates = th.normal(means, std)
+        updates = self.clip_op(updates)
+        
+        # Distribute updates into corrupted indices
+        mzab[inds_boolean] = updates
+        mzab_inp = th.cat([mzab[...,None], batch['ab'][...,None]], -1)
+        inp = {
+            'x': mzab_inp,
+            'charge': batch['charge'],
+            'mass': batch['mass'],
+            'length': batch['length']
+        }
+
+        # TARGET: Classify all inds
+        self.target = batch[self.typ] - mzab
+        assert self.target.shape[1] == 100, (
+            batch[self.typ], mzab
+        )
+        
+        return inp
+
+    def loss(self, prediction):
+        loss = (self.target - prediction).abs()
+
+        return loss
+
 all_tasks = lambda tc: {
     'trinary_mz': TrinaryTask('mz', stdev=tc['trinary_mz']['stdev']),
     'trinary_ab': TrinaryTask(
@@ -398,5 +451,6 @@ all_tasks = lambda tc: {
     ),
     'hidden_mass': HiddenMass(loss_weight=tc['hidden_charge']['loss_weight']),
     'maldi': Maldi(**tc['maldi']),
+    'resid_regr': ResidualRegression(**tc['resid_regr']),
 }
 

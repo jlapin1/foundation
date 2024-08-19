@@ -28,6 +28,8 @@ loader:
   buffer_size: 10000
   batch_size: 100
   num_workers: 4
+  remove_columns:
+    - name
   scratch:
     use: True
     path: /media/storage/scratch/ninespecies/

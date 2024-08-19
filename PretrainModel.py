@@ -113,10 +113,9 @@ optencoder = Adam(encoder.parameters(), config['lr'])
 
 def save_all_weights(svdir):
     U.save_full_model(encoder, optencoder, svdir)
-    # Save all header weights in one file
-    th.save(header.state_dict(), "%s/weights/model_%s.wts"%(svdir, header.name))
     # Save header optimizer weights individually
     for task_name in config['tasks']:
+        th.save(header.heads[task_name].state_dict(), "%s/weights/head_%s.wts"%(svdir, task_name))
         # optimizer.name should have opt_ already in it (see Header in models)
         fn = '%s/weights/opt_%s.wts'%(svdir, task_name)
         U.save_optimizer_state(header.opts[task_name], fn)
@@ -127,7 +126,8 @@ if config['load']:
     U.load_optimizer_state(
         optencoder, ldpth + 'opt_encopt.wts', device
     )
-    header.load_state_dict(th.load(ldpth + 'model_head.wts', map_location=device))
+    #header.load_state_dict(th.load(ldpth + 'model_head.wts', map_location=device))
+    header.heads['trinary_mz'].load_state_dict(th.load(os.path.join(ldpth, 'head_trinary_mz.wts'), map_location=device))
     for task_name in config['tasks']:
         # ASSUMPTION: header optimizers follow name convention 
         # opt_{task}.wts.npy
@@ -207,7 +207,7 @@ def train_step(batch, task, enc_opt, head_opt):
     return loss
 
 def evaluation():
-    task = "trinary_mz"
+    task = "resid_regr"
     encoder.eval()
     header.eval()
 
@@ -324,7 +324,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
         evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
     
     loss_list = []
-    max_step_tick=False
+    max_steps_tick=False
     for epoch in range(epochs):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
@@ -338,6 +338,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
             
             # Train model for a step
             TT=time()
+            #T['trinary_mz'].stdev = 0.5*np.exp(-6.9314718055994526e-06*float(encoder.global_step))
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
             loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
@@ -362,7 +363,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
                 all_loss.append(T[random_task].running_loss['main'][-1])
             
             # Stdout
-            if step%50==0:
+            if step%10==0:
                 means = tuple([
                     task.calc_avg_running_loss()['main']
                     for task_name, task in T.items()

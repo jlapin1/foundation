@@ -22,3 +22,6 @@ hidden_mass:
   loss_weight: 1
 maldi:
   freq: 0.15
+resid_regr:
+  freq: 0.15
+  stdev: 0.1
