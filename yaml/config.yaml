@@ -11,7 +11,7 @@ headclip:
   type: norm
   max: 1
 tasks:
-  - trinary_mz
+  #- trinary_mz
   #- trinary_ab
   #- hidden_mz
   #- hidden_ab
@@ -19,6 +19,7 @@ tasks:
   #- hidden_charge
   #- hidden_mass
   #- maldi
+  - resid_regr
 downstream:
   #- denovo_ar
 load: False
@@ -28,4 +29,4 @@ svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Normal downstream with single aa tokens"
+header: "Super resolution - tanh regressor scale=0.1"

@@ -200,7 +200,7 @@ def train_step(batch, task, enc_opt, head_opt):
     return loss
 
 def evaluation():
-    task = "trinary_mz"
+    task = "resid_regr"
     encoder.eval()
     header.eval()
 
