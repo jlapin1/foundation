@@ -3,15 +3,10 @@ max_peaks: 100
 epochs: 1
 steps_per_report: 10000
 max_steps: 1e10
-eval_steps: 0
 batch_size: 100
 lr: 4e-5
-headclip:
-  use: False
-  type: norm
-  max: 1
 tasks:
-  #- trinary_mz
+  - trinary_mz
   #- trinary_ab
   #- hidden_mz
   #- hidden_ab
@@ -19,13 +14,13 @@ tasks:
   #- hidden_charge
   #- hidden_mass
   #- maldi
-  - resid_regr
+  #- resid_regr
 downstream:
   #- denovo_ar
-load: True
+load: False
 loadpath: save/2024-08-18_10-11-54/weights/
-log: True
-svwts: True
+log: False
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False

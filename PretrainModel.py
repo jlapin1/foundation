@@ -12,11 +12,6 @@ import yaml
 import utils as U
 import re
 Adam = th.optim.Adam
-clip_op = (
-    th.nn.utils.clip_grad_value_
-    if config['headclip']['type'] == 'value' else
-    th.nn.utils.clip_grad_norm_
-)
 # slurm doesn't always manage gpus well -> cublas error
 # you may need to set cuda_visible_devices={#} before python in shellscript.sh
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
@@ -40,7 +35,6 @@ with open("./yaml/tasks.yaml", 'r') as stream:
 with open("./yaml/downstream.yaml") as stream:
     dsconfig = yaml.safe_load(stream)
 config['lr'] = float(config['lr'])
-
 
 # NOTE about trading information between yaml files:
 # I don't want to have to specify inputs in 2 different yaml files that must be 
@@ -190,9 +184,6 @@ def train_step(batch, task, enc_opt, head_opt):
     
     loss.backward()
     enc_opt.step()
-    if config['headclip']['use']: 
-        parms = header.heads[task].parameters()
-        clip_op(parms, config['headclip']['max'])
     head_opt.step()
     
     encoder.global_step +=1 
