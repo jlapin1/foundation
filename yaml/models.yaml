@@ -64,7 +64,7 @@ header_dict:
       penult_units: 512
       activation: tanh
       spectrum_wise: False
-      scale: 0.1
+      scale: 1.0
 
 
 

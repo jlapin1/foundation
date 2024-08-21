@@ -22,11 +22,11 @@ tasks:
   - resid_regr
 downstream:
   #- denovo_ar
-load: False
-loadpath: save/2024-07-24_09-51-57/weights/
+load: True
+loadpath: save/2024-08-18_10-11-54/weights/
 log: True
 svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Super resolution - tanh regressor scale=0.1"
+header: "Super resolution - regression"

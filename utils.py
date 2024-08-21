@@ -32,14 +32,29 @@ def save_optimizer_state(opt, fn):
 def load_optimizer_state(opt, fn, device):
     opt.load_state_dict(th.load(fn, map_location=device))
 
-def save_full_model(model, optimizer, svdir):
+def save_full_model(model, optimizer, svdir, remark=""):
     th.save(
         model.state_dict(), 
-        "%s/weights/model_enc.wts"%(svdir)
+        "%s/weights/model_enc_%s.wts"%(svdir, remark)
     )
     save_optimizer_state(
-        optimizer, '%s/weights/opt_encopt.wts'%(svdir)
+        optimizer, '%s/weights/opt_encopt_%s.wts'%(svdir, remark)
     )
+
+def save_all_weights(svdir, encodern, header, remark="", clear=False):
+    if clear:
+        os.system("rm %s/weights/*"%svdir)
+    encoder, optencoder = encodern
+    save_full_model(encoder, optencoder, svdir, remark=remark)
+    # Save header optimizer weights individually
+    for task_name in header.heads.keys():
+        th.save(header.heads[task_name].state_dict(), "%s/weights/head_%s_%s.wts"%(svdir, task_name, remark))
+        # optimizer.name should have opt_ already in it (see Header in models)
+        fn = '%s/weights/opt_%s_%s.wts'%(svdir, task_name, remark)
+        save_optimizer_state(header.opts[task_name], fn)
+
+find_file = lambda Match, loadpath: os.path.join(loadpath, [m for m in os.listdir(loadpath) if Match in m][0])
+
 
 def discretize_mz(mz, binsz, totbins):
     indices = th.maximum(
