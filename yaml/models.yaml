@@ -1,21 +1,21 @@
 encoder_name: mine # depthcharge | {other}
 encoder_dict:
   norm_type: 'layer'
-  mz_units: 512
-  ab_units: 512
-  subdivide: False
+  mz_units: 1024
+  ab_units: 256
+  subdivide: True
   running_units: 512
   att_d: 64
   att_h: 8
   gate: False
   alphabet: False
   depth: 9
-  ffn_multiplier: 3
+  ffn_multiplier: 4
   prenorm: True
   use_charge: False
   use_mass: False
   bias: pairwise # 'pairwise' | 'regular' | False | None
-  recycling_its: 4
+  recycling_its: 1
   dropout: 0.25
   pw_mz_units: 512
   pw_run_units: 64
