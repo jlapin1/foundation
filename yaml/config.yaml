@@ -6,7 +6,7 @@ max_steps: 1e10
 batch_size: 100
 lr: 4e-5
 tasks:
-  - trinary_mz
+  #- trinary_mz
   #- trinary_ab
   #- hidden_mz
   #- hidden_ab
@@ -14,14 +14,14 @@ tasks:
   #- hidden_charge
   #- hidden_mass
   #- maldi
-  #- resid_regr
+  - resid_regr
 downstream:
   #- denovo_ar
 load: False
 loadpath: save/2024-08-18_10-11-54/weights/
-log: False
-svwts: False
+log: True
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Super resolution - regression"
+header: "Super resolution - regression with charge input"

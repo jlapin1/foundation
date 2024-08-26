@@ -12,7 +12,8 @@ encoder_dict:
   depth: 9
   ffn_multiplier: 4
   prenorm: True
-  use_charge: False
+  prec_type: inject_pre
+  use_charge: True
   use_mass: False
   bias: pairwise # 'pairwise' | 'regular' | False | None
   dropout: 0.25

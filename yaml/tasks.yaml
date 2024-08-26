@@ -24,4 +24,4 @@ maldi:
   freq: 0.15
 resid_regr:
   freq: 1.0
-  stdev: 0.05
+  stdev: 0.1
