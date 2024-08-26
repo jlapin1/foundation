@@ -181,10 +181,11 @@ class Encoder(nn.Module):
         self.norm = mp.get_norm_type(norm_type)
         
         # Recycling embedder
-        if self.its > 1:
-            #grad = True if recycling_its > 1 else False
+        # self.alpha must always be defined for backwards compatibility (until 240826)
+        grad = True if recycling_its > 1 else False
+        self.alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
+        if self.its > 1: 
             beta =  0.1 if recycling_its > 1 else 1.0
-            self.alpha = nn.Parameter(th.tensor(1.0), requires_grad=True)
             self.embed_0 = nn.Parameter(
                 nn.init.normal_(th.empty(1000, running_units), 0, 1), 
                 requires_grad=True
