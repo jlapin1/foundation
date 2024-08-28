@@ -202,11 +202,6 @@ class Encoder(nn.Module):
         
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
-        #pos = mp.FourierFeatures(
-        #    th.arange(1000, dtype=th.float32), 1, 5000, self.run_units,
-        #)
-        #self.pos = nn.Parameter(pos, requires_grad=False)
-
         self.apply(init_encoder_weights)
     
     def total_params(self):
@@ -316,10 +311,10 @@ class Encoder(nn.Module):
         
         main = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
         
-        if self.its > 1:
-            emb = self.main_alpha*emb + self.main_beta*main['out']
-        else:
-            emb = main['out']
+        emb = (
+            self.main_alpha*emb + self.main_beta*main['out']
+            if self.its > 1 else main['out']
+        )
         
         output = {'emb': emb, 'mask': mask, 'other': main['other']}
         
