@@ -2,7 +2,7 @@ sequence_len: 21
 learn_sigma: False
 sigma_small: False
 class_cond: False
-diffusion_steps: 1000 # 2000
+diffusion_steps: 2000 # 2000
 noise_schedule: sqrt
 timestep_respacing: ""
 use_kl: False

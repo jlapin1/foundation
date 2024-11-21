@@ -18,6 +18,7 @@ from collections import deque
 from time import time
 import utils as U
 from copy import deepcopy
+import wandb
 nn = th.nn
 F = nn.functional
 choice = np.random.choice
@@ -185,7 +186,7 @@ class DownstreamObj:
                 embedding = self.encoder(**enc_input)['emb']
         
         self.head.train()
-        self.head.decoder.zero_grad()
+        self.head.zero_grad()
         head_out = self.head(embedding)
         all_loss = self.LossFunction(target, head_out)
         loss = all_loss.mean()
@@ -201,7 +202,7 @@ class DownstreamObj:
     def train_epoch(self, svfreq=10000):
         
         bs = self.config['batch_size']
-        running_loss = deque(maxlen=50)
+        running_loss = {'loss': deque(maxlen=50), 'mse': deque(maxlen=50), 'decoder_nll': deque(maxlen=50), 'tT': deque(maxlen=50)}
         running_time = [deque(maxlen=50) for _ in range(5)];running_time[-1].append(0)
         
         epoch_start = time()
@@ -209,6 +210,8 @@ class DownstreamObj:
         for step, batch in enumerate(self.data.dataloader['train']):
             step_start = time()
             running_time[0].append(step_start - step_end)
+            
+            wandb.log({"Learning rate": self.opt_encoder.param_groups[-1]['lr']})
 
             # Are we training the encoder? Two conditions must be met.
             train_encoder = (
@@ -219,19 +222,36 @@ class DownstreamObj:
                 ) else 
                 False
             ) # boolean argument into train_step
-            loss = self.train_step(batch, train_encoder)
+            losses = self.train_step(batch, train_encoder)
             self.global_step += 1
             split1 = time()
             
-            running_loss.append(loss.detach().cpu())
+            for key in running_loss.keys(): running_loss[key].append(losses[key].detach().cpu())
             split2 = time()
             
-            rlm = np.mean(running_loss)
+            rlm = {key: np.mean(running_loss[key]) for key in running_loss.keys()}
             rtm = np.mean(running_time[-1]) #[np.mean(m) if len(m)>0 else 0 for m in running_time]
             split3 = time()
-            print("\rTraining step %d  Running Loss: %.6f (%.3f s)"%(step+1, rlm, rtm), end='')
+            loss_printout = ", ".join(len(rlm)*['%s: %7f'])%tuple([m for n in rlm.items() for m in n])
+            print("\rTraining step %d  Running Loss: %s (%.3f s)"%(step+1, loss_printout, rtm), end='')
             
-            self.running_loss.append(rlm)
+            global_grad_norm_encoder = U.global_grad_norm(self.encoder)
+            global_grad_norm_decoder = U.global_grad_norm(self.head)
+            wandb.log({
+                "Total loss": losses['loss'],
+                "Total run loss": rlm['loss'],
+                "MSE loss": losses['mse'],
+                "MSE run loss": rlm['mse'],
+                "DecoderNLL loss": losses['decoder_nll'],
+                "DecoderNLL run loss": rlm['decoder_nll'],
+                "tT loss": losses['tT'],
+                "tT run loss": rlm['tT'],
+                'Global step': self.global_step,
+                "Global grad norm encoder": global_grad_norm_encoder,
+                "Global grad norm decoder": global_grad_norm_decoder,
+            })
+
+            self.running_loss.append(rlm['loss'])
             if self.log and (self.global_step % svfreq == 0):
                 self.savetxt(self.running_loss)
                 self.running_loss = []
@@ -250,7 +270,7 @@ class DownstreamObj:
             self.savetxt(self.running_loss)
             self.running_loss = []
         
-        print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
+        print("\rFinal running loss: %s, Final time elapsed: %.0f s"%(loss_printout, time()-epoch_start))
         
     def savetxt(self, train_loss=None, eval_stats=None):
         if eval_stats is not None:
@@ -277,7 +297,7 @@ class BaseDenovo(DownstreamObj):
 
         self.eval_stats = []
 
-    def evaluation(self, dset='val'):
+    def evaluation(self, dset='val', max_batches=1e10):
         
         func = self.head.predict_sequence if self.ar else self.call
         
@@ -297,6 +317,9 @@ class BaseDenovo(DownstreamObj):
         self.encoder.eval()
         self.head.eval()
         for i, batch in enumerate(self.data.dataloader[dset]):
+            if i == max_batches:
+                break
+
             print("\rEvaluation step %d"%(i+1), end='')
             batch = U.Dict2dev(batch, device)
             # Fork in the code for the 2 types of denovo models I created
@@ -321,6 +344,7 @@ class BaseDenovo(DownstreamObj):
             roc_stats = U.roc_apply_threshold(**vecs, threshold=0.9)
             for metric in roc_stats.keys():
                 tots[metric] += roc_stats[metric]
+            #print(" ", ", ".join(len(out)*["%s: %s"])%tuple([m for n in out.items() for m in n]), end="")
 
             self.on_eval_step_end(target, loss_mask)
         
@@ -345,11 +369,9 @@ class BaseDenovo(DownstreamObj):
             self.train_epoch()
             self.on_train_epoch_end()
             
-            #if i >= 2:
-            out = self.evaluation(dset=eval_dset)
-            #import sys
-            #sys.exit()
-            
+            out = self.evaluation(dset=eval_dset, max_batches=10)
+            wandb.log(out)
+
             line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
                 (i,) + tuple(out.values())
             )
@@ -558,7 +580,7 @@ class DenovoDiffusionObj(BaseDenovo):
                 embedding = self.encoder(**enc_input)
         
         self.head.train()
-        self.head.decoder.zero_grad()
+        self.head.zero_grad()
         model_kwargs = {
             'input_ids': None,
             'decoder_input_ids': target,
@@ -573,7 +595,8 @@ class DenovoDiffusionObj(BaseDenovo):
             noise=None
         )
         
-        loss = losses['loss'].mean()
+        losses = {key: loss.mean() for key, loss in losses.items()}
+        loss = losses['loss']
         loss.backward()
         
         if self.config['lr_warmup']:
@@ -585,7 +608,7 @@ class DenovoDiffusionObj(BaseDenovo):
         if trenc:
             self.opt_encoder.step()
         
-        return loss
+        return losses
    
     def on_train_epoch_end(self):
         avg_losses = self.diff_obj.my_loss_history / (self.diff_obj.my_loss_count+1e-7)[...,None]
@@ -617,7 +640,8 @@ if __name__ == '__main__':
         dsconfig = yaml.safe_load(stream)
         dsconfig['log'] = config['log']
         dsconfig['header'] = config['header']
-    
+    with open("./yaml/diffusion.yaml") as stream:
+        diff_config = yaml.safe_load(stream)
     # Shorthand
     bs = dsconfig['batch_size']
     msg = dsconfig['log']
@@ -636,8 +660,21 @@ if __name__ == '__main__':
     else:
         svdir = './'
 
+    # WandB
+    if config['log_wandb']:
+        wandb.init(
+            project=config['project'],
+            entity='joellapin',
+			config={
+				'master': config,
+                'downstream': dsconfig,
+                'diffusion': diff_config,
+                'save_directory': svdir,
+			},
+		)   
+
     # Downstream object
     print("Denovo sequencing")
     D = DenovoDiffusionObj(dsconfig, svdir=svdir)
-    #out = D.evaluation(dset='val')
+    #out = D.evaluation(dset='val', max_batches=5)
     print(D.TrainEval()[-1])

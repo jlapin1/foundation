@@ -273,3 +273,6 @@ def Dict2dev(Dict, device, inplace=False):
         return True
     else:
         return {a: b.to(device) for a,b in Dict.items()}
+
+def global_grad_norm(model):
+    return sum([m.grad.detach().square().sum().item() for m in model.parameters() if (m.requires_grad and m.grad is not None)])**0.5

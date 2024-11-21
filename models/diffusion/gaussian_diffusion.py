@@ -442,7 +442,9 @@ class GaussianDiffusion:
         tT_loss = mean_flat(out_mean**2)
         
         decoder_nll = self.token_discrete_loss(x_start, get_logits, input_ids, mask=loss_mask)
-
+        
+        terms['decoder_nll'] = decoder_nll
+        terms['tT'] = tT_loss
         terms["loss"] = terms["mse"] + (decoder_nll + tT_loss)
 
         # My loss tracking
@@ -1050,7 +1052,7 @@ class GaussianDiffusion:
             img = th.randn(*shape, device=device)
 
         # PLACE CODE HERE: STEPPING BACK NOT FROM AN INTERMEDIATE STARTING STEP
-        T = 995
+        T = self.num_timesteps
         indices = list(range(T))[::-1]
 
         if progress:

@@ -340,6 +340,7 @@ class DenovoDiffusionDecoder(nn.Module):
         # The mapping of tokens to embeddings, and reverse, embeddings
         # to logits will have a shared weight that is only trained by
         # forward process.
+        self.decoder.seq_emb.weight = I.normal_(self.decoder.seq_emb.weight, 0, 0.03)
         self.lm_head = nn.Linear(running_units, len(self.outdict))
         with th.no_grad():
             self.lm_head.weight = self.decoder.seq_emb.weight
@@ -422,8 +423,8 @@ class DenovoDiffusionDecoder(nn.Module):
             x_start_mean.shape,
         )
         x_start = self.diff_obj.get_x_start(x_start_mean, std)
-        #ts = th.tensor(x_start.shape[0]*[self.diff_obj.num_timesteps-1]).to(x_start.device)
-        ts = th.tensor(x_start.shape[0]*[995-1]).to(x_start.device)
+        ts = th.tensor(x_start.shape[0]*[self.diff_obj.num_timesteps-1]).to(x_start.device)
+        #ts = th.tensor(x_start.shape[0]*[2000-1]).to(x_start.device)
         noise = self.diff_obj.q_sample(x_start, ts, noise=noise)
 
         units = self.diff_obj.my_p_sample_loop(
