@@ -416,6 +416,7 @@ class DenovoDiffusionDecoder(nn.Module):
         target = self.replace_with_eos_token(target, batch['peplen'])
         loss_mask = self.decoder.sequence_mask(batch['peplen'], target.shape[1])
         loss_mask = loss_mask == 0
+        model_kwargs['loss_mask'] = loss_mask
         x_start_mean = self.get_embed(target)
         std = _extract_into_tensor(
             self.diff_obj.sqrt_one_minus_alphas_cumprod,

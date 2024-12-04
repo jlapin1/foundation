@@ -19,6 +19,7 @@ from time import time
 import utils as U
 from copy import deepcopy
 import wandb
+from glob import glob
 nn = th.nn
 F = nn.functional
 choice = np.random.choice
@@ -105,8 +106,11 @@ class DownstreamObj:
             else:
                 self.encoder = Encoder(**self.config['encoder_dict'], device=device)
 
-            if self.config['pretrain_path'] is not None:
-                self.encoder.load_state_dict(th.load(weights_path, map_location=device))
+            if self.config['dswts'] is not None:
+                weights_path = glob(os.path.join(self.svdir, "weights", "encoder*.wts"))
+                assert len(weights_path) == 1, "Multiple encoder weights found in weights directory"
+                print("Loading previous encoder weights")
+                self.encoder.load_state_dict(th.load(weights_path[0], map_location=device))
         
         self.encoder.to(device)
         self.opt_encoder = th.optim.Adam(
@@ -211,7 +215,7 @@ class DownstreamObj:
             step_start = time()
             running_time[0].append(step_start - step_end)
             
-            wandb.log({"Learning rate": self.opt_encoder.param_groups[-1]['lr']})
+            if self.config['log_wandb']: wandb.log({"Learning rate": self.opt_encoder.param_groups[-1]['lr']})
 
             # Are we training the encoder? Two conditions must be met.
             train_encoder = (
@@ -237,19 +241,20 @@ class DownstreamObj:
             
             global_grad_norm_encoder = U.global_grad_norm(self.encoder)
             global_grad_norm_decoder = U.global_grad_norm(self.head)
-            wandb.log({
-                "Total loss": losses['loss'],
-                "Total run loss": rlm['loss'],
-                "MSE loss": losses['mse'],
-                "MSE run loss": rlm['mse'],
-                "DecoderNLL loss": losses['decoder_nll'],
-                "DecoderNLL run loss": rlm['decoder_nll'],
-                "tT loss": losses['tT'],
-                "tT run loss": rlm['tT'],
-                'Global step': self.global_step,
-                "Global grad norm encoder": global_grad_norm_encoder,
-                "Global grad norm decoder": global_grad_norm_decoder,
-            })
+            if self.config['log_wandb']:
+                wandb.log({
+                    "Total loss": losses['loss'],
+                    "Total run loss": rlm['loss'],
+                    "MSE loss": losses['mse'],
+                    "MSE run loss": rlm['mse'],
+                    "DecoderNLL loss": losses['decoder_nll'],
+                    "DecoderNLL run loss": rlm['decoder_nll'],
+                    "tT loss": losses['tT'],
+                    "tT run loss": rlm['tT'],
+                    'Global step': self.global_step,
+                    "Global grad norm encoder": global_grad_norm_encoder,
+                    "Global grad norm decoder": global_grad_norm_decoder,
+                })
 
             self.running_loss.append(rlm['loss'])
             if self.log and (self.global_step % svfreq == 0):
@@ -498,7 +503,7 @@ class DenovoArDSObj(BaseDenovo):
 from models.diffusion.model_utils import create_model_and_diffusion
 
 class DenovoDiffusionObj(BaseDenovo):
-    def __init__(self, config, base_model=None, svdir='./dswts/'):
+    def __init__(self, config, diff_config=None, base_model=None, svdir='./dswts/'):
         task = 'denovo_diff'
         super().__init__(
             config=config, task=task, base_model=base_model, ar=False, 
@@ -506,8 +511,9 @@ class DenovoDiffusionObj(BaseDenovo):
         )
 
         # Diffusion object
-        with open("./yaml/diffusion.yaml") as stream:
-            diff_config = yaml.safe_load(stream)
+        if diff_config is None:
+            with open("./yaml/diffusion.yaml") as stream:
+                diff_config = yaml.safe_load(stream)
         diff_config['pad_tok_id'] = self.data.amod_dic['X']
         diff_config['resume_checkpoint'] = False
         diff_config['sequence_len'] = self.config['loader']['pep_length'][1] + 1 # b/c of eos token
@@ -526,8 +532,10 @@ class DenovoDiffusionObj(BaseDenovo):
             **config['denovo_diff']['head_dict'],
         )
         print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
-        if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
-            self.head.decoder.load_state_dict(th.load(self.svdir + '/head.wts', map_location=device))
+        possible_weights_path = os.path.join(self.svdir, "weights", "head.wts")
+        if config['dswts'] is not None and os.path.exists(possible_weights_path):
+            print("Loading previous decoder weights")
+            self.head.load_state_dict(th.load(possible_weights_path, map_location=device))
         self.head.to(device)
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
         self.eval_score = []
@@ -647,20 +655,29 @@ if __name__ == '__main__':
     msg = dsconfig['log']
     swt = dsconfig['save_weights']
     
-    # Create experiment directory in save/downstream_only/
-    if (msg or swt):
+    ########################################################
+    # Create experiment directory in save/downstream_only/ #
+    ########################################################
+
+    # Continuing previous downstream run
+    if dsconfig['dswts'] is not None:
+        svdir = os.path.join(dsconfig['dswts'])
+    # Starting from pretrained encoder -> must fix to combine with create new exp
+    elif dsconfig['pretrain_path'] is not None:
+        svdir = os.path.join(dsconfig['pretrain_path'], 'weights')
+    # Create new experiment
+    elif (msg or swt):
         timestamp = U.timestamp()
         svdir = 'save/downstream_only/' + timestamp
         U.create_experiment(svdir, svwts=config['svwts'])
         with open(svdir + '/experiment_header', 'w') as f:
             f.write("Experiment header: " + config['header'])
         print("Experiment is writing to directory %s"%svdir)
-    elif dsconfig['pretrain_path'] is not None:
-        svdir = os.path.join(dsconfig['pretrain_path'], 'weights')
     else:
         svdir = './'
 
     # WandB
+    dsconfig['log_wandb'] = config['log_wandb']
     if config['log_wandb']:
         wandb.init(
             project=config['project'],

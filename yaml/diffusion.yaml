@@ -21,4 +21,4 @@ freeze_embeddings: False
 use_pretrained_embeddings: True
 load_ckpt:
 loss_update_granu: 20
-schedule_update_stride: 20000
+schedule_update_stride: 2000000

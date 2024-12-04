@@ -252,6 +252,23 @@ class GaussianDiffusion:
 
         self.training_mode = training_mode
         print("training mode is ", training_mode)
+
+        # ME: Save noise vectors for visualization
+        try:
+            save_this = np.stack([
+                betas[:,0], 
+                alphas[:,0], 
+                self.alphas_cumprod[:,0], 
+                self.sqrt_alphas_cumprod[:,0], 
+                self.sqrt_one_minus_alphas_cumprod[:,0], 
+                self.posterior_variance[:,0]
+            ]).T
+            np.savetxt(
+                "save/noise_vectors.csv", save_this, delimiter=',', 
+                header="beta,alpha,alphacp,sqrt_alphacp,sqrt_1-alphacp,post_var"
+            )
+        except:
+            pass
     
     def update_time_discretized_parameters(self, alphas_cumprod):
 
@@ -580,9 +597,11 @@ class GaussianDiffusion:
             # for fixedlarge, we set the initial (log-)variance like so
             # to get a better decoder log likelihood.
             ModelVarType.FIXED_LARGE: (
-                np.append(self.posterior_variance[1], self.betas[1:]),
-                np.log(np.append(self.posterior_variance[1], self.betas[1:])),
-            ),
+                #np.append(self.posterior_variance[1], self.betas[1:]),
+                #np.log(np.append(self.posterior_variance[1], self.betas[1:])),
+                np.concatenate([self.posterior_variance[1:2], self.betas[1:]]),
+                np.log(np.concatenate([self.posterior_variance[1:2], self.betas[1:]])),
+            ), # FIXME The np.append linearizes the 2d matrix, such that it doesn't line up with the timestep vector t
             ModelVarType.FIXED_SMALL: (
                 self.posterior_variance,
                 self.posterior_log_variance_clipped,
@@ -1073,6 +1092,8 @@ class GaussianDiffusion:
             model_kwargs.pop('input_ids')
             if 'self_conditions' in model_kwargs:
                 model_kwargs.pop('self_conditions')
+        if 'loss_mask' in model_kwargs:
+            loss_mask = model_kwargs.pop("loss_mask")
 
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
