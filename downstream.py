@@ -312,7 +312,10 @@ class BaseDenovo(DownstreamObj):
         #steps += 0 if (totsz % self.config['batch_size'])==0 else 1
         
         # losses
-        out = {'ce': 0, 'old_recall': 0, 'recall': 0, 'precision': 0, 'auprc': 0}
+        out = {
+            'ce': 0, 'old_recall': 0, 'recall': 0, 'precision': 0, 'auprc': 0,
+            'dot_mean': 0, 'dot_std': 0,
+        }
         old_recall_sum = 0
         tots = {
             'recall': 0,
@@ -333,13 +336,14 @@ class BaseDenovo(DownstreamObj):
                     batch, #full_seqint=True,
                 )
                 embedding = self.encoder(**enc_input)
-                prediction, probs = self.head.predict_sequence(embedding, batch)
+                prediction, probs, dots = self.head.predict_sequence(embedding, batch)
                 pred = probs.transpose(-1,-2)
+
+            out['dot_mean'] += dots['mean_dot']
+            out['dot_std'] += dots['std_dot']
             
             out['ce'] += (
                 F.cross_entropy(pred, target, reduction='none')[loss_mask].sum()
-                #if self.ar else 
-                #self.LossFunction(target, pred, loss_mask).sum()
             )
                         
             vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='aa')
@@ -358,6 +362,8 @@ class BaseDenovo(DownstreamObj):
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
         out['old_recall'] = out['old_recall'] / old_recall_sum
         out['auprc'] = out['auprc'] / steps
+        out['dot_mean'] = out['dot_mean'].cpu().detach().numpy() / steps
+        out['dot_std'] = out['dot_std'].cpu().detach().numpy() / steps
         for metric in roc_stats.keys():
             out[metric] = tots[metric] /  steps
         
@@ -377,7 +383,7 @@ class BaseDenovo(DownstreamObj):
             out = self.evaluation(dset=eval_dset, max_batches=10)
             wandb.log(out)
 
-            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
+            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f, .mn=%.2f, .std=%.2f"%(
                 (i,) + tuple(out.values())
             )
             if out['recall']>highscore:

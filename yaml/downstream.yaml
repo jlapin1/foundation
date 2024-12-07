@@ -5,7 +5,7 @@ lr_warmup_start: 1.0e-6
 lr_warmup_end: 1.0e-4
 lr_warmup_steps: 20000
 pretrain_path:
-dswts: save/downstream_only/2024-11-21_20-54-20 # Load weights from previous downstream run
+dswts: # Load weights from previous downstream run (project path->timestamp)
 epochs: 30
 steps_per_epoch: 10000
 train_encoder: True

@@ -428,7 +428,7 @@ class DenovoDiffusionDecoder(nn.Module):
         #ts = th.tensor(x_start.shape[0]*[2000-1]).to(x_start.device)
         noise = self.diff_obj.q_sample(x_start, ts, noise=noise)
 
-        units = self.diff_obj.my_p_sample_loop(
+        units = self.diff_obj.my_p_sample_loop( # FIXME my_p_sample_loop
             self,
             shape,
             noise=noise,
@@ -438,8 +438,11 @@ class DenovoDiffusionDecoder(nn.Module):
         )
         logits = self.get_logits(units) # bs, 31, predcats
         final = logits.argmax(dim=-1)
-
-        return final, logits
+        
+        dots = (th.einsum('abc,adc->abd', units, units) / units.norm(dim=-1, keepdim=True)**2)[loss_mask]
+        dot_dict = {'mean_dot': dots.mean(), 'std_dot': dots.std()}
+        
+        return final, logits, dot_dict
 
     def clamp(self, x_0, *args):
         embedding = self.lm_head.weight # 24, 512

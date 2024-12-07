@@ -38,7 +38,7 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
         # Linear schedule from Ho et al, extended to work for any number of
         # diffusion steps.
         scale = 1000 / num_diffusion_timesteps
-        beta_start = scale * 0.0001
+        beta_start = scale * 0.001 # 0.0001
         beta_end = scale * 0.02 # 0.02
         return np.linspace(beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64)
     elif schedule_name == "cosine":
@@ -198,7 +198,7 @@ class GaussianDiffusion:
         self.token_max_length = token_max_length
         self.save_dir = save_dir
 
-        print("$"*10, self.save_dir)
+        #print("$"*10, self.save_dir)
 
         betas = np.array(betas, dtype=np.float64)
         self.betas = betas
@@ -210,17 +210,18 @@ class GaussianDiffusion:
         self._loss_interp_granu = int(loss_update_granu)
         assert self._loss_interp_granu is not None
         self._loss_history_update_stride = schedule_update_stride
-        print('schedule update stride', self._loss_history_update_stride)
+        #print('schedule update stride', self._loss_history_update_stride)
         self._loss_history = np.ones((self.num_timesteps//self._loss_interp_granu, self.token_max_length)) * np.linspace(0, 0.5, self.num_timesteps//self._loss_interp_granu)[:,None]
         self._loss_history_count = np.ones((self.num_timesteps//self._loss_interp_granu, self.token_max_length))
         
-        # My loss tracking
-        self.my_loss_history = np.zeros((self.num_timesteps, 3))
-        self.my_loss_count = np.zeros((self.num_timesteps,))
-        self.my_img_save = []
 
         alphas = 1.0 - betas
+        
+        self.alphas_cumprod = np.cumprod(alphas)
+        self.alphas_cumprod_prev = np.append(1, self.alphas_cumprod[:-1])
+        self.alphas_cumprod_next = np.append(self.alphas_cumprod[1:], 0)
 
+        """
         if len(betas.shape) < 2:
             alphas = np.expand_dims(alphas, 1)
             alphas = np.tile(alphas, (1, self.token_max_length))
@@ -229,6 +230,7 @@ class GaussianDiffusion:
         self.alphas_cumprod_prev = np.vstack((np.ones((1, self.token_max_length)), self.alphas_cumprod[:-1]))
         self.alphas_cumprod_next = np.vstack((self.alphas_cumprod[1:], np.zeros((1, self.token_max_length))))
         assert self.alphas_cumprod_prev.shape == (self.num_timesteps, self.token_max_length)
+        """
         self.alpha_cumprod_range = np.max(self.alphas_cumprod) - np.min(self.alphas_cumprod)
 
         self.sqrt_alphas_cumprod = np.sqrt(self.alphas_cumprod)
@@ -251,17 +253,21 @@ class GaussianDiffusion:
         )
 
         self.training_mode = training_mode
-        print("training mode is ", training_mode)
+        #print("training mode is ", training_mode)
 
         # ME: Save noise vectors for visualization
+        # My loss tracking
+        self.my_loss_history = np.zeros((self.num_timesteps, 3))
+        self.my_loss_count = np.zeros((self.num_timesteps,))
+        self.my_img_save = []
         try:
             save_this = np.stack([
-                betas[:,0], 
-                alphas[:,0], 
-                self.alphas_cumprod[:,0], 
-                self.sqrt_alphas_cumprod[:,0], 
-                self.sqrt_one_minus_alphas_cumprod[:,0], 
-                self.posterior_variance[:,0]
+                betas, 
+                alphas, 
+                self.alphas_cumprod, 
+                self.sqrt_alphas_cumprod, 
+                self.sqrt_one_minus_alphas_cumprod, 
+                self.posterior_variance,
             ]).T
             np.savetxt(
                 "save/noise_vectors.csv", save_this, delimiter=',', 
@@ -443,7 +449,8 @@ class GaussianDiffusion:
         t0_mask = ts == 0
         t0_loss = mean_flat((x_start_mean - model_out_x_start) ** 2, loss_mask)
         terms["mse"] = th.where(t0_mask, t0_loss, terms["mse"])
-
+        
+        """
         ### adaptive noise schedule logging part
         with th.no_grad():
             mse_loss_log_ = th.mean((target - model_output) ** 2, dim = -1).detach()
@@ -452,7 +459,8 @@ class GaussianDiffusion:
             _loss_log[t0_mask] = t0_loss_log_[t0_mask]
             _loss_log[input_ids==self.pad_tok_id] = 0
             self._loss_history_update(ts, _loss_log, input_ids!=self.pad_tok_id, training_step)
-        
+        """
+
         out_mean, _, _ = self.q_mean_variance(
             x_start, th.LongTensor([self.num_timesteps - 1]).to(x_start.device)
         )
