@@ -5,13 +5,13 @@ lr_warmup_start: 1.0e-6
 lr_warmup_end: 1.0e-4
 lr_warmup_steps: 20000
 pretrain_path:
-dswts: # Load weights from previous downstream run (project path->timestamp)
+dswts: save/downstream_only/2024-12-08_13-12-18 # Load weights from previous downstream run (project path->timestamp)
 epochs: 30
 steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
-log: False # write to downstream_only directory
-save_weights: False
+log: True # write to downstream_only directory
+save_weights: True
 # Loader options
 loader:
   dataset_path: 

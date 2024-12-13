@@ -88,7 +88,7 @@ class Decoder(nn.Module):
         self.norm = mp.get_norm_type(norm_type)
 
         # First embeddings
-        self.seq_emb = nn.Embedding(num_inp_tokens, running_units)
+        #self.seq_emb = nn.Embedding(num_inp_tokens, running_units)
         self.alpha = nn.Parameter(th.tensor(0.1), requires_grad=True)
         
         # charge/energy embedding transformation
@@ -152,12 +152,12 @@ class Decoder(nn.Module):
         units = (
             running_units if penultimate_units==None else penultimate_units 
         )
-        self.final = nn.Sequential(
-            nn.Linear(running_units, units, bias=False),
-            nn.GELU(),
-            self.norm(units),
-            nn.Linear(units, self.num_out_tokens)
-        )
+        #self.final = nn.Sequential(
+        #    nn.Linear(running_units, units, bias=False),
+        #    nn.GELU(),
+        #    self.norm(units),
+        #    nn.Linear(units, self.num_out_tokens)
+        #)
         
         # Pool sequence dimension?
         self.pool = pool
@@ -220,7 +220,7 @@ class Decoder(nn.Module):
     def EmbedInputs(self, intseq, charge=None, energy=None, mass=None):
         
         # Sequence embedding
-        seqemb = self.seq_emb(intseq)
+        #seqemb = self.seq_emb(intseq)
         
         # charge and/or energy embedding
         if self.atleast1:
@@ -281,6 +281,7 @@ class DenovoDiffusionDecoder(nn.Module):
         token_dict,
         dec_config,
         diff_obj,
+        input_output_units=128,
         running_units=512,
         d=64,
         h=8,
@@ -316,11 +317,12 @@ class DenovoDiffusionDecoder(nn.Module):
         self.dec_config = dec_config
         RU = dec_config['running_units']
         self.RU = RU
+        self.input_output_units = input_output_units
         self.decoder = Decoder(**dec_config)
         self.use_mass = dec_config['use_mass']
         self.use_charge = dec_config['use_charge']
         self.max_sl = dec_config['sequence_length'] + 1
-        self.final = nn.Linear(RU, RU)
+        self.final_down_proj = nn.Linear(RU, input_output_units)
         self.self_condition = self_condition
         self.clip_denoised = clip_denoised
 
@@ -330,7 +332,7 @@ class DenovoDiffusionDecoder(nn.Module):
         
         # Transforming the x input to input for transformer block
         # Note: identity in original paper if no self_condition
-        x_input_dim = 2*RU if self_condition else RU
+        x_input_dim = 2*input_output_units if self_condition else input_output_units
         self.input_proj_dec = nn.Sequential(
             nn.Linear(x_input_dim, RU),
             nn.Tanh(),
@@ -340,10 +342,13 @@ class DenovoDiffusionDecoder(nn.Module):
         # The mapping of tokens to embeddings, and reverse, embeddings
         # to logits will have a shared weight that is only trained by
         # forward process.
-        self.decoder.seq_emb.weight = I.normal_(self.decoder.seq_emb.weight, 0, 0.03)
-        self.lm_head = nn.Linear(running_units, len(self.outdict))
+        self.seq_emb = nn.Embedding(
+            dec_config['num_inp_tokens'], input_output_units, padding_idx=self.NT
+        )
+        self.seq_emb.weight = I.normal_(self.seq_emb.weight, 0, 0.03)
+        self.lm_head = nn.Linear(input_output_units, len(self.outdict))
         with th.no_grad():
-            self.lm_head.weight = self.decoder.seq_emb.weight
+            self.lm_head.weight = self.seq_emb.weight
 
         # Timestep embedding
         self.time_embed = nn.Sequential(
@@ -353,7 +358,7 @@ class DenovoDiffusionDecoder(nn.Module):
         )
 
     def get_embed(self, seq):
-        return self.decoder.seq_emb(seq)
+        return self.seq_emb(seq)
 
     def get_logits(self, hidden_repr):
         return self.lm_head(hidden_repr)
@@ -395,7 +400,7 @@ class DenovoDiffusionDecoder(nn.Module):
             emb, kv_feats=kv_feats, embed=time_emb, 
             spec_mask=specmask, seq_mask=None
         )
-        out = self.final(out)
+        out = self.final_down_proj(out)
 
         return out
 
@@ -403,7 +408,7 @@ class DenovoDiffusionDecoder(nn.Module):
         shape = (
             embedding['emb'].shape[0],
             batch['intseq'].shape[1] + 1,
-            self.RU,
+            self.input_output_units,
         )
         model_kwargs = {
             'kv_feats': embedding['emb']
@@ -439,10 +444,7 @@ class DenovoDiffusionDecoder(nn.Module):
         logits = self.get_logits(units) # bs, 31, predcats
         final = logits.argmax(dim=-1)
         
-        dots = (th.einsum('abc,adc->abd', units, units) / units.norm(dim=-1, keepdim=True)**2)[loss_mask]
-        dot_dict = {'mean_dot': dots.mean(), 'std_dot': dots.std()}
-        
-        return final, logits, dot_dict
+        return final, logits
 
     def clamp(self, x_0, *args):
         embedding = self.lm_head.weight # 24, 512

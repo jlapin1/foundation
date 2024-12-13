@@ -312,11 +312,7 @@ class BaseDenovo(DownstreamObj):
         #steps += 0 if (totsz % self.config['batch_size'])==0 else 1
         
         # losses
-        out = {
-            'ce': 0, 'old_recall': 0, 'recall': 0, 'precision': 0, 'auprc': 0,
-            'dot_mean': 0, 'dot_std': 0,
-        }
-        old_recall_sum = 0
+        out = {'ce': 0, 'recall': 0, 'precision': 0, 'auprc': 0,}
         tots = {
             'recall': 0,
             'precision': 0,
@@ -336,21 +332,16 @@ class BaseDenovo(DownstreamObj):
                     batch, #full_seqint=True,
                 )
                 embedding = self.encoder(**enc_input)
-                prediction, probs, dots = self.head.predict_sequence(embedding, batch)
+                prediction, probs = self.head.predict_sequence(embedding, batch)
                 pred = probs.transpose(-1,-2)
 
-            out['dot_mean'] += dots['mean_dot']
-            out['dot_std'] += dots['std_dot']
-            
             out['ce'] += (
                 F.cross_entropy(pred, target, reduction='none')[loss_mask].sum()
             )
                         
             vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='aa')
-            out['old_recall'] += U.roc_apply_threshold(**vecs, threshold=0)['recall']*vecs['precision'].shape[0]
-            old_recall_sum += vecs['precision'].shape[0]
             out['auprc'] += auprc
-            roc_stats = U.roc_apply_threshold(**vecs, threshold=0.9)
+            roc_stats = U.roc_apply_threshold(**vecs, threshold=0)
             for metric in roc_stats.keys():
                 tots[metric] += roc_stats[metric]
             #print(" ", ", ".join(len(out)*["%s: %s"])%tuple([m for n in out.items() for m in n]), end="")
@@ -360,10 +351,7 @@ class BaseDenovo(DownstreamObj):
         steps = i+1
         totsz = self.config['loader']['batch_size']*steps
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
-        out['old_recall'] = out['old_recall'] / old_recall_sum
         out['auprc'] = out['auprc'] / steps
-        out['dot_mean'] = out['dot_mean'].cpu().detach().numpy() / steps
-        out['dot_std'] = out['dot_std'].cpu().detach().numpy() / steps
         for metric in roc_stats.keys():
             out[metric] = tots[metric] /  steps
         
@@ -383,7 +371,7 @@ class BaseDenovo(DownstreamObj):
             out = self.evaluation(dset=eval_dset, max_batches=10)
             wandb.log(out)
 
-            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f, .mn=%.2f, .std=%.2f"%(
+            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Precision=%.4f, AUPRC=%.4f"%(
                 (i,) + tuple(out.values())
             )
             if out['recall']>highscore:
@@ -530,6 +518,7 @@ class DenovoDiffusionObj(BaseDenovo):
         head_dict['kv_indim'] = self.encoder.run_units
         self.config['sl'] = self.config['loader']['pep_length'][1]
         self.head = DenovoDiffusionDecoder(
+            input_output_units=diff_config['in_channel'],
             token_dict=self.data.amod_dic, 
             dec_config=head_dict,
             diff_obj=self.diff_obj,
@@ -598,7 +587,7 @@ class DenovoDiffusionObj(BaseDenovo):
         model_kwargs = {
             'input_ids': None,
             'decoder_input_ids': target,
-            'loss_mask': loss_mask,
+            #'loss_mask': loss_mask, # THIS RUINS EVERYTHING
             'kv_feats': embedding['emb'],
         }
         losses = self.diff_obj.training_losses(
