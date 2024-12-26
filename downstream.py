@@ -11,7 +11,7 @@ import numpy as np
 from models.encoder import Encoder
 from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import SequenceHead, ClassifierHead
-from models.decoder import DenovoDecoder, DenovoDiffusionDecoder
+from models.decoder import DenovoDiffusionDecoder
 import os
 from tqdm import tqdm
 from collections import deque
@@ -314,7 +314,7 @@ class BaseDenovo(DownstreamObj):
         # losses
         out = {'ce': 0, 'recall': 0, 'precision': 0, 'auprc': 0,}
         tots = {
-            'recall': 0,
+            'auc': 0,
             'precision': 0,
         }
         
@@ -339,12 +339,16 @@ class BaseDenovo(DownstreamObj):
                 F.cross_entropy(pred, target, reduction='none')[loss_mask].sum()
             )
                         
-            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='aa')
+            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.NT, typ='aa')
             out['auprc'] += auprc
-            roc_stats = U.roc_apply_threshold(**vecs, threshold=0)
-            for metric in roc_stats.keys():
-                tots[metric] += roc_stats[metric]
-            #print(" ", ", ".join(len(out)*["%s: %s"])%tuple([m for n in out.items() for m in n]), end="")
+            #roc_stats = U.roc_apply_threshold(**vecs, threshold=0)
+            #for metric in roc_stats.keys():
+            #    tots[metric] += roc_stats[metric]
+            stats = U.AccRecPrec(target.cpu(), prediction.cpu(), self.head.NT)
+            for metric in stats.keys():
+                if metric not in tots.keys():
+                    tots[metric] = 0
+                tots[metric] += stats[metric]['sum'] / stats[metric]['total']
 
             self.on_eval_step_end(target, loss_mask)
         
@@ -352,7 +356,7 @@ class BaseDenovo(DownstreamObj):
         totsz = self.config['loader']['batch_size']*steps
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
         out['auprc'] = out['auprc'] / steps
-        for metric in roc_stats.keys():
+        for metric in tots.keys():
             out[metric] = tots[metric] /  steps
         
         self.on_eval_end()
@@ -371,9 +375,10 @@ class BaseDenovo(DownstreamObj):
             out = self.evaluation(dset=eval_dset, max_batches=10)
             wandb.log(out)
 
-            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Precision=%.4f, AUPRC=%.4f"%(
-                (i,) + tuple(out.values())
-            )
+            specifier = " ".join(len(out)*['%s'])
+            write_out = specifier%tuple([f"{m}={n:.3}" for m,n, in out.items()])
+            line = "ValEpoch %d: %s"%(i, write_out)
+            
             if out['recall']>highscore:
                 highline = line
                 highscore = out['recall']
@@ -511,6 +516,7 @@ class DenovoDiffusionObj(BaseDenovo):
         diff_config['pad_tok_id'] = self.data.amod_dic['X']
         diff_config['resume_checkpoint'] = False
         diff_config['sequence_len'] = self.config['loader']['pep_length'][1] + 1 # b/c of eos token
+        self.diff_config = diff_config
         _, self.diff_obj = create_model_and_diffusion(**diff_config)
 
         # Head model
@@ -526,7 +532,7 @@ class DenovoDiffusionObj(BaseDenovo):
             clip_denoised=diff_config['clip_denoised'],
             **config['denovo_diff']['head_dict'],
         )
-        print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
+        print(f"Total Decoder parameters: {self.head.total_params():,}")
         possible_weights_path = os.path.join(self.svdir, "weights", "head.wts")
         if config['dswts'] is not None and os.path.exists(possible_weights_path):
             print("Loading previous decoder weights")
@@ -563,8 +569,7 @@ class DenovoDiffusionObj(BaseDenovo):
         target = self.append_null_token(target)
         target = self.replace_with_eos_token(target, batch['peplen'])
 
-        loss_mask = self.head.decoder.sequence_mask(batch['peplen'], target.shape[1])
-        loss_mask = loss_mask == 0
+        loss_mask = self.head.sequence_mask(target)
 
         return enc_input, timesteps, target, loss_mask
 
@@ -584,12 +589,17 @@ class DenovoDiffusionObj(BaseDenovo):
         
         self.head.train()
         self.head.zero_grad()
+        
         model_kwargs = {
             'input_ids': None,
             'decoder_input_ids': target,
-            #'loss_mask': loss_mask, # THIS RUINS EVERYTHING
+            'charge': batch['charge'] if 'charge' in batch else None,
+            'mass': batch['mass'] if 'mass' in batch else None,
             'kv_feats': embedding['emb'],
         }
+        if self.diff_config['use_loss_mask']:
+            model_kwargs['loss_mask'] = loss_mask # THIS RUINS EVERYTHING
+
         losses = self.diff_obj.training_losses(
             self.head, 
             self.global_step,

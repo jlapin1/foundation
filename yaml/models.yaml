@@ -13,8 +13,8 @@ encoder_dict:
   ffn_multiplier: 4
   prenorm: True
   prec_type: inject_pre
-  use_charge: True
-  use_mass: True
+  use_charge: False
+  use_mass: False
   bias: # 'pairwise' | 'regular' | False | None
   dropout: 0
   pw_mz_units: 512

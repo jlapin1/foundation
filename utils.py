@@ -68,9 +68,9 @@ def AccRecPrec(target, prediction, null_value):
     #precsum = tf.reduce_sum(tf.gather_nd(boolean, prec_inds))
     precsum = boolean[prec_bool].sum()
     out = {
-        'accuracy': {'sum': accsum, 'total': target.shape[0]*target.shape[1]},
-        'recall': {'sum': recsum, 'total': recall_bool.sum()},
-        'precision': {'sum': precsum, 'total': prec_bool.sum()},
+        'accuracy' : {'sum': accsum,  'total': target.numel()   },
+        'recall'   : {'sum': recsum,  'total': recall_bool.sum()},
+        'precision': {'sum': precsum, 'total': prec_bool.sum()  },
     }
 
     return out

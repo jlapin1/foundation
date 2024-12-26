@@ -22,3 +22,4 @@ use_pretrained_embeddings: True
 load_ckpt:
 loss_update_granu: 20
 schedule_update_stride: 2000000
+use_loss_mask: False
