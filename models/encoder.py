@@ -108,16 +108,23 @@ class Encoder(nn.Module):
             mdimpw = self.pw_mzunits//4 if subdivide else self.pw_mzunits
             self.mdimpw = mdimpw
             self.MzpwSeq = nn.Identity()#Sequential(nn.Linear(mdimpw, mdimpw), nn.SiLU())
-            self.pwfirst = nn.Linear(self.pw_mzunits, self.pw_runits)
-            self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True)
+            self.pwfirst = nn.Identity()#nn.Linear(self.pw_mzunits, self.pw_runits)
+            #self.alphapw = nn.Parameter(th.tensor(0.1), requires_grad=True)
             #self.pospw = pw.RelPos(sequence_length, self.pw_runits)
             # Evolve features
-            multdict = {'in_dim': self.pw_runits, 'c': 128}
+            """multdict = {'in_dim': self.pw_runits, 'c': 128}
             attdict = {'in_dim': self.pw_runits, 'c': pw_attention_ch, 'h': pw_attention_h}
             ptdict = {'in_dim': self.pw_runits, 'n': pw_n}
             self.PwSeq = nn.Sequential(*[
                 pw.PairStack(multdict, attdict, ptdict, drop_rate=0)
                 for m in range(pw_blocks)
+            ])"""
+            self.PwSeq = nn.Sequential(*[
+                #pw.PairStack(multdict, attdict, ptdict, drop_rate=0)
+                #for m in range(pw_blocks)
+                nn.Linear(self.pw_mzunits, ffn_multiplier*self.pw_runits),
+                nn.SiLU(),
+                nn.Linear(ffn_multiplier*self.pw_runits, self.pw_runits)
             ])
 
         # charge/energy/mass embedding transformation
@@ -296,7 +303,7 @@ class Encoder(nn.Module):
         mabemb = mzab_dic['1d']
         pwemb = mzab_dic['2d']
         if self.bias == 'pairwise':
-            pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
+            #pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
             pwemb = self.PwSeq(pwemb)
         
         out = self.first(mabemb)# + self.alpha*self.pos[:x.shape[1]]

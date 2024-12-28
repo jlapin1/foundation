@@ -5,7 +5,7 @@ lr_warmup_start: 1.0e-6
 lr_warmup_end: 1.0e-4
 lr_warmup_steps: 20000
 pretrain_path:
-dswts: save/downstream_only/2024-12-26_21-41-26 # Load weights from previous downstream run (project path->timestamp)
+dswts: # Load weights from previous downstream run (project path->timestamp)
 epochs: 30
 steps_per_epoch: 10000
 train_encoder: True
@@ -56,10 +56,10 @@ denovo_diff:
   head_dict:
     running_units: 512
     sequence_length: 30
-    depth: 9
+    depth: 6
     d: 64
     h: 8
-    ffn_multiplier: 2
+    ffn_multiplier: 4
     ce_units: 256
     use_charge: True
     use_energy: False

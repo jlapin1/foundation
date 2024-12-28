@@ -373,7 +373,9 @@ class BaseDenovo(DownstreamObj):
             self.on_train_epoch_end()
             
             out = self.evaluation(dset=eval_dset, max_batches=10)
+            out['epoch'] = i+1
             wandb.log(out)
+            out.pop('epoch')
 
             specifier = " ".join(len(out)*['%s'])
             write_out = specifier%tuple([f"{m}={n:.3}" for m,n, in out.items()])
