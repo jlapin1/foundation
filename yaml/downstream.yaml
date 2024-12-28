@@ -41,7 +41,7 @@ denovo_ar:
     depth: 9
     d: 64
     h: 8
-    ffn_multiplier: 1
+    ffn_multiplier: 2
     ce_units: 256
     use_charge: True
     use_energy: False

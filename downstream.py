@@ -247,7 +247,7 @@ class DownstreamObj:
             self.savetxt(self.running_loss)
             self.running_loss = []
         
-        print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
+        #print("\rFinal running loss: %.6f, Final time elapsed: %.0f s"%(rlm, time()-epoch_start))
         
     def savetxt(self, train_loss=None, eval_stats=None):
         if eval_stats is not None:
@@ -270,8 +270,8 @@ class BaseDenovo(DownstreamObj):
 
         self.eval_stats = []
 
-    def evaluation(self, dset='val'):
-        
+    def evaluation(self, dset='val', max_steps=10):
+
         func = self.head.predict_sequence if self.ar else self.call
         
         # counters
@@ -280,9 +280,10 @@ class BaseDenovo(DownstreamObj):
         #steps += 0 if (totsz % self.config['batch_size'])==0 else 1
         
         # losses
-        out = {'ce': 0, 'old_recall': 0, 'recall': 0, 'precision': 0, 'auprc': 0}
+        out = {'ce': 0, 'recall': 0, 'precision': 0, 'accuracy': 0, 'auprc': 0}
         old_recall_sum = 0
         tots = {
+            'accuracy': 0,
             'recall': 0,
             'precision': 0,
         }
@@ -290,6 +291,10 @@ class BaseDenovo(DownstreamObj):
         self.encoder.eval()
         self.head.eval()
         for i, batch in enumerate(self.data.dataloader[dset]):
+            
+            if i==max_steps: 
+                break
+
             print("\rEvaluation step %d"%(i+1), end='')
             batch = U.Dict2dev(batch, device)
             # Fork in the code for the 2 types of denovo models I created
@@ -308,20 +313,23 @@ class BaseDenovo(DownstreamObj):
             )
                         
             vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.outdict['<EOS>'], typ='pep')
-            out['old_recall'] += U.roc_apply_threshold(**vecs, threshold=0)['recall']*vecs['precision'].shape[0]
+            #out['old_recall'] += U.roc_apply_threshold(**vecs, threshold=0)['recall']*vecs['precision'].shape[0]
             old_recall_sum += vecs['precision'].shape[0]
             out['auprc'] += auprc
             roc_stats = U.roc_apply_threshold(**vecs, threshold=0.9)
-            for metric in roc_stats.keys():
-                tots[metric] += roc_stats[metric]
+            
+            stats = U.AccRecPrec(target, prediction, null_value=self.head.outdict['<EOS>'])
+            # accu
+            for metric in stats.keys():
+                tots[metric] += stats[metric]['sum'] / stats[metric]['total'] #roc_stats[metric]
         
         steps = i+1
         totsz = self.config['loader']['batch_size']*steps
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
-        out['old_recall'] = out['old_recall'] / old_recall_sum
+        #out['old_recall'] = out['old_recall'] / old_recall_sum
         out['auprc'] = out['auprc'] / steps
-        for metric in roc_stats.keys():
-            out[metric] = tots[metric] /  steps
+        for metric in stats.keys():
+            out[metric] = float(tots[metric].cpu()) /  steps
 
         return out
 
@@ -335,7 +343,7 @@ class BaseDenovo(DownstreamObj):
             
             out = self.evaluation(dset=eval_dset)
             
-            line = "ValEpoch %d: Cross-entropy=%.4f, Recall(0)=%.4f, Recall(90)=%.4f, Precision(90)=%.4f, AUPRC=%.4f"%(
+            line = "ValEpoch %d: Cross-entropy=%.4f, Recall=%.4f, Precision=%.4f, Accuracy=%.4f, AUPRC=%.4f"%(
                 (i,) + tuple(out.values())
             )
             if out['recall']>highscore:
@@ -490,5 +498,5 @@ if __name__ == '__main__':
     # Downstream object
     print("Denovo sequencing")
     D = DenovoArDSObj(dsconfig, svdir=svdir)
-    #out = D.evaluation(dset='val')
+    print(D.evaluation(dset='val'))
     print(D.TrainEval()[-1])

@@ -20,7 +20,7 @@ downstream:
 load: False
 loadpath: save/2024-08-20_16-09-31/weights/
 log: True
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
