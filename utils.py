@@ -287,4 +287,4 @@ def Dict2dev(Dict, device, inplace=False):
             Dict[key] = Dict[key].to(device)
         return True
     else:
-        return {a: b.to(device) for a,b in Dict.items()}
+        return {a: b.to(device) for a,b in Dict.items() if type(b)==th.Tensor}

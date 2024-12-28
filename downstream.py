@@ -341,7 +341,7 @@ class BaseDenovo(DownstreamObj):
             self.data.dataset['train'].set_epoch(i)
             self.train_epoch()
             
-            out = self.evaluation(dset=eval_dset)
+            out = self.evaluation(dset=eval_dset, max_steps=100)
             
             line = "ValEpoch %d: Cross-entropy=%.4f, Recall=%.4f, Precision=%.4f, Accuracy=%.4f, AUPRC=%.4f"%(
                 (i,) + tuple(out.values())
@@ -498,5 +498,5 @@ if __name__ == '__main__':
     # Downstream object
     print("Denovo sequencing")
     D = DenovoArDSObj(dsconfig, svdir=svdir)
-    print(D.evaluation(dset='val'))
+    print(D.evaluation(dset='val', max_steps=10))
     print(D.TrainEval()[-1])
