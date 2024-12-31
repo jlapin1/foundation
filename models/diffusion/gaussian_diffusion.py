@@ -259,7 +259,8 @@ class GaussianDiffusion:
         # My loss tracking
         self.my_loss_history = np.zeros((self.num_timesteps, 3))
         self.my_loss_count = np.zeros((self.num_timesteps,))
-        self.my_img_save = []
+        self.my_xstart_save = []
+        self.my_xcur_save = []
         try:
             save_this = np.stack([
                 betas, 
@@ -799,7 +800,8 @@ class GaussianDiffusion:
                 )
                 yield out
                 img = out["sample"]
-                self.my_img_save.append(out['pred_xstart'])
+                #self.my_xcur_save.append(img)
+                self.my_xstart_save.append(out['pred_xstart'])
 
             
     def p_sample_loop_progressive_mix_sample(
@@ -1055,6 +1057,8 @@ class GaussianDiffusion:
         generate_by_mix=False,
         generate_by_mix_prob=0,
         generate_by_mix_part=0,
+        save_xcur=False,
+        save_xstart=True,
     ):
         loop_fn = self.p_sample_loop_progressive
         """sample = loop_fn(
@@ -1116,11 +1120,12 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                     top_p=top_p,
                 )
+                if save_xcur: self.my_xcur_save.append(img)
                 img = out["sample"]
-                self.my_img_save.append(out['pred_xstart'])
-
+                if save_xstart: self.my_xstart_save.append(out['pred_xstart'])
 
         final = out
+        if save_xcur: self.my_xcur_save.append(final['sample'])
 
         return final['sample']
 

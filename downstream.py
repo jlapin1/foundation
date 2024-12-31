@@ -313,10 +313,7 @@ class BaseDenovo(DownstreamObj):
         
         # losses
         out = {'ce': 0, 'recall': 0, 'precision': 0, 'auprc': 0,}
-        tots = {
-            'auc': 0,
-            'precision': 0,
-        }
+        tots = {}
         
         self.encoder.eval()
         self.head.eval()
@@ -634,10 +631,10 @@ class DenovoDiffusionObj(BaseDenovo):
     def on_eval_step_end(self, target, mask):
         mses = np.zeros((target.shape[0], self.diff_obj.num_timesteps))
         targ = self.head.get_embed(target)
-        for i, img in enumerate(self.diff_obj.my_img_save):
+        for i, img in enumerate(self.diff_obj.my_xstart_save):
             mse = (mask[...,None]*(img-targ)).square().sum(dim=[1,2]) / mask.sum(-1) / img.shape[-1]
             mses[:, i] = mse.detach().cpu().numpy()
-        self.diff_obj.my_img_save = []
+        self.diff_obj.my_xstart_save = []
         self.eval_score.append(mses)
 
     def on_eval_end(self):
@@ -683,6 +680,10 @@ if __name__ == '__main__':
     else:
         svdir = './'
 
+    # Downstream object
+    print("Denovo sequencing")
+    D = DenovoDiffusionObj(dsconfig, svdir=svdir)
+
     # WandB
     dsconfig['log_wandb'] = config['log_wandb']
     if config['log_wandb']:
@@ -694,11 +695,11 @@ if __name__ == '__main__':
                 'downstream': dsconfig,
                 'diffusion': diff_config,
                 'save_directory': svdir,
+                'encoder_parameters': D.encoder.total_params(),
+                'decoder_parameters': D.head.total_params(),
 			},
 		)   
 
-    # Downstream object
-    print("Denovo sequencing")
-    D = DenovoDiffusionObj(dsconfig, svdir=svdir)
-    #out = D.evaluation(dset='val', max_batches=5)
-    print(D.TrainEval()[-1])
+    # Run training and/or evaluation
+    print(D.evaluation(dset='val', max_batches=1e10))
+    #print(D.TrainEval()[-1])

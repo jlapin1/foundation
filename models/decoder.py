@@ -279,7 +279,7 @@ class DenovoDiffusionDecoder(nn.Module):
 
         return out
 
-    def predict_sequence(self, embedding, batch):
+    def predict_sequence(self, embedding, batch, save_xcur=False):
         shape = (
             embedding['emb'].shape[0],
             batch['intseq'].shape[1] + 1,
@@ -294,7 +294,7 @@ class DenovoDiffusionDecoder(nn.Module):
         # Create fully noised real data
         device = model_kwargs['kv_feats'].device
         noise = th.randn(*shape, device=device)
-        target = self.append_null_token(batch['intseq'])
+        """target = self.append_null_token(batch['intseq'])
         target = self.replace_with_eos_token(target, batch['peplen'])
         loss_mask = self.sequence_mask(target)
         model_kwargs['loss_mask'] = loss_mask
@@ -307,15 +307,16 @@ class DenovoDiffusionDecoder(nn.Module):
         x_start = self.diff_obj.get_x_start(x_start_mean, std)
         ts = th.tensor(x_start.shape[0]*[self.diff_obj.num_timesteps-1]).to(x_start.device)
         #ts = th.tensor(x_start.shape[0]*[2000-1]).to(x_start.device)
-        noise = self.diff_obj.q_sample(x_start, ts, noise=noise)
+        noise = self.diff_obj.q_sample(x_start, ts, noise=noise)"""
 
-        units = self.diff_obj.my_p_sample_loop( # FIXME my_p_sample_loop
+        units = self.diff_obj.my_p_sample_loop(
             self,
             shape,
             noise=noise,
             #denoised_fn=self.clamp,
             clip_denoised=self.clip_denoised,
             model_kwargs=model_kwargs,
+            save_xcur=save_xcur
         )
         logits = self.get_logits(units) # bs, 31, predcats
         final = logits.argmax(dim=-1)
