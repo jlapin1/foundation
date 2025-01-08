@@ -284,10 +284,10 @@ deltaPPM = lambda mprec, mpred: abs(mprec - mpred) * 1e6 / mprec
 def Dict2dev(Dict, device, inplace=False):
     if inplace:
         for key in Dict.keys():
-            Dict[key] = Dict[key].to(device)
+            if type(b)==th.Tensor: Dict[key] = Dict[key].to(device)
         return True
     else:
-        return {a: b.to(device) for a,b in Dict.items()}
+        return {a: b.to(device) for a,b in Dict.items() if type(b)==th.Tensor}
 
 def global_grad_norm(model):
     return sum([m.grad.detach().square().sum().item() for m in model.parameters() if (m.requires_grad and m.grad is not None)])**0.5

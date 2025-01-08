@@ -6,6 +6,7 @@ import utils
 import re
 from glob import glob
 import sys
+import pandas as pd
 
 def map_fn(example, tokenizer, dic=None, top=100, max_seq=50):
     ab = th.tensor(example['intensity_array'])
@@ -28,7 +29,6 @@ def map_fn(example, tokenizer, dic=None, top=100, max_seq=50):
     tokenized_sequence = tokenizer(example['modified_sequence'])
     peptide_length = len(tokenized_sequence)
     example['tokenized_sequence'] = th.tensor([dic[m] for m in tokenized_sequence] + (max_seq-peptide_length)*[dic['X']], dtype=th.int32)
-    peptide_length = len(example['tokenized_sequence'])
     example['peptide_length'] = th.tensor(peptide_length, dtype=th.int32)
     example['spectrum_length'] = th.tensor(spectrum_length, dtype=th.int32)
 
@@ -97,7 +97,16 @@ class LoaderHF:
             }
             self.amod_dic['X'] = len(self.amod_dic)
             self.amod_dic_rev = {b:a for a,b in self.amod_dic.items()}
-        
+
+        # Species sizes
+        ss_path = os.path.join(dataset_path, "species_sizes.txt")
+        if os.path.exists(ss_path):
+            species_sizes = pd.read_csv(ss_path, sep=" ", header=None, names=["species", "count"], index_col="species")
+            self.val_size = float(species_sizes.query(f"species == '{val_species}'")['count'].iloc[0])
+            self.train_size = float(species_sizes.query(f"species != '{val_species}'")['count'].sum())
+        else:
+            None
+
         # Dataset
         dataset_path_ = os.path.join(dataset_path, "parquet/processed")
         train_files = glob(os.path.join(dataset_path_, '*'))

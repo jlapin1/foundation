@@ -109,7 +109,7 @@ class DownstreamObj:
             if self.config['dswts'] is not None:
                 weights_path = glob(os.path.join(self.svdir, "weights", "encoder*.wts"))
                 assert len(weights_path) == 1, "Multiple encoder weights found in weights directory"
-                print("Loading previous encoder weights")
+                print("<MYCOMMENT> Loading previous encoder weights")
                 self.encoder.load_state_dict(th.load(weights_path[0], map_location=device))
         
         self.encoder.to(device)
@@ -209,9 +209,14 @@ class DownstreamObj:
         running_loss = {'loss': deque(maxlen=50), 'mse': deque(maxlen=50), 'decoder_nll': deque(maxlen=50), 'tT': deque(maxlen=50)}
         running_time = [deque(maxlen=50) for _ in range(5)];running_time[-1].append(0)
         
+        # Progress bar
+        train_steps = int(self.data.train_size // bs)
+        pbar = tqdm(self.data.dataloader['train'], total=train_steps)
+
         epoch_start = time()
         step_end=epoch_start;split1=epoch_start;split2=epoch_start;split3=epoch_start
-        for step, batch in enumerate(self.data.dataloader['train']):
+        for step, batch in enumerate(pbar):
+            
             step_start = time()
             running_time[0].append(step_start - step_end)
             
@@ -237,8 +242,9 @@ class DownstreamObj:
             rtm = np.mean(running_time[-1]) #[np.mean(m) if len(m)>0 else 0 for m in running_time]
             split3 = time()
             loss_printout = ", ".join(len(rlm)*['%s: %7f'])%tuple([m for n in rlm.items() for m in n])
-            print("\rTraining step %d  Running Loss: %s (%.3f s)"%(step+1, loss_printout, rtm), end='')
-            
+            #print("\rTraining step %d  Running Loss: %s (%.3f s)"%(step+1, loss_printout, rtm), end='')
+            pbar.set_description(f"Running Loss: {loss_printout} ({rtm:.3} s)")
+
             global_grad_norm_encoder = U.global_grad_norm(self.encoder)
             global_grad_norm_decoder = U.global_grad_norm(self.head)
             if self.config['log_wandb']:
@@ -306,22 +312,25 @@ class BaseDenovo(DownstreamObj):
         
         func = self.head.predict_sequence if self.ar else self.call
         
-        # counters
-        #totsz = self.dl.dfs[dset].shape[0]
-        #steps = totsz // self.config['batch_size']
-        #steps += 0 if (totsz % self.config['batch_size'])==0 else 1
-        
         # losses
         out = {'ce': 0, 'recall': 0, 'precision': 0, 'auprc': 0,}
         tots = {}
+
+        # Progress bar
+        val_steps = min(
+            self.data.val_size // self.data.dataloader[dset].batch_size,
+            max_batches,
+        )
+        pbar = tqdm(self.data.dataloader[dset], total=val_steps)
         
         self.encoder.eval()
         self.head.eval()
-        for i, batch in enumerate(self.data.dataloader[dset]):
+        for i, batch in enumerate(pbar):
+            pbar.set_description(f"Evaluation")
             if i == max_batches:
                 break
 
-            print("\rEvaluation step %d"%(i+1), end='')
+            #print("\rEvaluation step %d"%(i+1), end='')
             batch = U.Dict2dev(batch, device)
             # Fork in the code for the 2 types of denovo models I created
             with th.no_grad():
@@ -338,9 +347,6 @@ class BaseDenovo(DownstreamObj):
                         
             vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.NT, typ='aa')
             out['auprc'] += auprc
-            #roc_stats = U.roc_apply_threshold(**vecs, threshold=0)
-            #for metric in roc_stats.keys():
-            #    tots[metric] += roc_stats[metric]
             stats = U.AccRecPrec(target.cpu(), prediction.cpu(), self.head.NT)
             for metric in stats.keys():
                 if metric not in tots.keys():
@@ -531,10 +537,10 @@ class DenovoDiffusionObj(BaseDenovo):
             clip_denoised=diff_config['clip_denoised'],
             **config['denovo_diff']['head_dict'],
         )
-        print(f"Total Decoder parameters: {self.head.total_params():,}")
+        print(f"<MYCOMMENT> Total Decoder parameters: {self.head.total_params():,}")
         possible_weights_path = os.path.join(self.svdir, "weights", "head.wts")
         if config['dswts'] is not None and os.path.exists(possible_weights_path):
-            print("Loading previous decoder weights")
+            print("<MYCOMMENT> Loading previous decoder weights")
             self.head.load_state_dict(th.load(possible_weights_path, map_location=device))
         self.head.to(device)
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
@@ -676,7 +682,7 @@ if __name__ == '__main__':
         U.create_experiment(svdir, svwts=config['svwts'])
         with open(svdir + '/experiment_header', 'w') as f:
             f.write("Experiment header: " + config['header'])
-        print("Experiment is writing to directory %s"%svdir)
+        print("<MYCOMMENT> Experiment is writing to directory %s"%svdir)
     else:
         svdir = './'
 
@@ -685,8 +691,8 @@ if __name__ == '__main__':
     D = DenovoDiffusionObj(dsconfig, svdir=svdir)
 
     # WandB
-    dsconfig['log_wandb'] = config['log_wandb']
-    if config['log_wandb']:
+    #dsconfig['log_wandb'] = config['log_wandb']
+    if dsconfig['log_wandb']:
         wandb.init(
             project=config['project'],
             entity='joellapin',
@@ -702,6 +708,7 @@ if __name__ == '__main__':
 
     # Run training and/or evaluation
     if dsconfig['eval_only']:
-        print(D.evaluation(dset='val', max_batches=1e10))
+        out = D.evaluation(dset='val', max_batches=1e10)
+        print("\n", out)
     else:
         print(D.TrainEval()[-1])

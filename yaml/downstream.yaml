@@ -6,13 +6,14 @@ lr_warmup_start: 1.0e-6
 lr_warmup_end: 1.0e-4
 lr_warmup_steps: 20000
 pretrain_path: # if starting with a pretrained encoder
-dswts: save/downstream_only/2025-01-01_21-02-38 # Load weights from previous downstream run (project path->timestamp)
+dswts: # Load weights from previous downstream run (project path->timestamp)
 epochs: 100
 steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
 log: False # write to downstream_only directory
-save_weights: False
+log_wandb: True
+save_weights: True
 # Loader options
 loader:
   dataset_path: /cmnfs/data/proteomics/foundational_model/9_species_V1
