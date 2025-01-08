@@ -4,58 +4,57 @@ import torch as th
 import os
 import utils
 import re
+from glob import glob
+import sys
 
-def map_fn(example, dic=None, top=100, max_seq=50):
-    ab = th.tensor(example['ab'])
+def map_fn(example, tokenizer, dic=None, top=100, max_seq=50):
+    ab = th.tensor(example['intensity_array'])
     ab_sort = (-ab).argsort()[:top]
     ab = ab[ab_sort]
     ab /= ab.max()
-    mz = th.tensor(example['mz'])[ab_sort]
+    spectrum_length = len(ab)
+    mz = th.tensor(example['mz_array'])[ab_sort]
     mz_sort = mz.argsort()
     length = len(mz)
     mz_ = th.zeros(top)
     mz_[:len(mz_sort)] = mz[mz_sort]
     ab_ = th.zeros(top)
     ab_[:len(ab_sort)] = ab[mz_sort]
-    example['mz'] = mz_
-    example['ab'] = ab_
-    example['charge'] = th.tensor(example['charge'], dtype=th.int32)
-    example['mass'] = th.tensor(example['mass'], dtype=th.float32)
-    example['length'] = th.tensor(length, dtype=th.int32)
-    if len(example['sequence']) > 0:
-        intseq = [dic[m] for m in example['sequence']]
-        intseq += (max_seq-len(intseq))*[dic['X']]
-        example['intseq'] = th.tensor(intseq, dtype=th.int32)
-        example['peplen'] = th.tensor(len(example['sequence']), dtype=th.int32)
+    example['mz_array'] = mz_
+    example['intensity_array'] = ab_
+    example['precursor_charge'] = th.tensor(example['precursor_charge'], dtype=th.int32)
+    example['precursor_mass'] = th.tensor(example['precursor_mass'], dtype=th.float32)
+    example['spectrum_length'] = th.tensor(len(example['mz_array']), dtype=th.int32)
+    tokenized_sequence = tokenizer(example['modified_sequence'])
+    peptide_length = len(tokenized_sequence)
+    example['tokenized_sequence'] = th.tensor([dic[m] for m in tokenized_sequence] + (max_seq-peptide_length)*[dic['X']], dtype=th.int32)
+    peptide_length = len(example['tokenized_sequence'])
+    example['peptide_length'] = th.tensor(peptide_length, dtype=th.int32)
+    example['spectrum_length'] = th.tensor(spectrum_length, dtype=th.int32)
 
     return example
 
 def collate_fn(batch_list):
-    mz = th.stack([m['mz'] for m in batch_list])
-    ab = th.stack([m['ab'] for m in batch_list])
-    charge = th.stack([m['charge'] for m in batch_list])
-    mass = th.stack([m['mass'] for m in batch_list])
-    length = th.stack([m['length'] for m in batch_list])
-    if 'peplen' in batch_list[0]:
-        peplen = th.stack([m['peplen'] for m in batch_list])
-    else:
-        peplen = None
-    if 'intseq' in batch_list[0]:
-        intseq = th.stack([m['intseq'] for m in batch_list])
-    else:
-        intseq = None
+    species = [m['experiment_name'] for m in batch_list]
+    speclen = th.stack([m['spectrum_length'] for m in batch_list])
+    mz = th.stack([m['mz_array'][:speclen.max()] for m in batch_list])
+    ab = th.stack([m['intensity_array'][:speclen.max()] for m in batch_list])
+    charge = th.stack([m['precursor_charge'] for m in batch_list])
+    mass = th.stack([m['precursor_mass'] for m in batch_list])
+    peplen = th.stack([m['peptide_length'] for m in batch_list])
+    intseq = th.stack([m['tokenized_sequence'][:peplen.max()] for m in batch_list])
 
     out = {
+        'experiment_name': species,
         'mz': mz,
         'ab': ab,
         'charge': charge,
         'mass': mass,
-        'length': length,
+        'length': speclen,
+        'intseq': intseq,
+        'peplen': peplen,
+        #'spectrum_lengths': speclen[:,None],
     }
-    if intseq is not None:
-        out['intseq'] = intseq
-    if peplen is not None:
-        out['peplen'] = peplen
 
     return out
 
@@ -68,8 +67,10 @@ exceptions = {
 
 class LoaderHF:
     def __init__(self, 
-        dataset_path: dict,
+        dataset_path: str,
+        val_species: str=None,
         dictionary_path: str=None,
+        tokenizer_path: str=None,
         top_pks: int=100,
         batch_size: int=100,
         num_workers: int=0,
@@ -95,43 +96,59 @@ class LoaderHF:
                 line.split()[0]:m for m, line in enumerate(open(dictionary_path))
             }
             self.amod_dic['X'] = len(self.amod_dic)
-            #for key in exceptions.keys():
-            #    if exceptions[key] in self.amod_dic.keys():
-            #        self.amod_dic[key] = self.amod_dic[exceptions[key]]
+            self.amod_dic_rev = {b:a for a,b in self.amod_dic.items()}
         
         # Dataset
+        dataset_path_ = os.path.join(dataset_path, "parquet/processed")
+        train_files = glob(os.path.join(dataset_path_, '*'))
+        val_files = glob(os.path.join(dataset_path_, f"*{val_species}*"))
+        for val_file in val_files:
+            train_files.remove(val_file)
+        data_files = {'train': train_files, 'val': val_files,}
         dataset = load_dataset(
             'parquet',
-            data_files=dataset_path,
+            data_files=data_files,
             streaming=True
         )
-
-        # Filter for length
-        if 'pep_length' in kwargs.keys():
-            dataset = dataset.filter(
-                lambda example: 
-                (len(example['sequence']) >= kwargs['pep_length'][0]) &
-                (len(example['sequence']) <= kwargs['pep_length'][1])
-            )
-        # Filter for charge
-        if 'charge' in kwargs.keys():
-            dataset = dataset.filter(
-                lambda example:
-                (example['charge'] >= kwargs['charge'][0]) &
-                (example['charge'] <= kwargs['charge'][1])
-            )
+        dataset['test'] = dataset['val']
+        
+        # Tokenizer
+        tokenizer_path = dataset_path if tokenizer_path==None else tokenizer_path
+        sys.path.append(tokenizer_path)
+        from enumerate_tokens import partition_modified_sequence
+        self.tokenizer = partition_modified_sequence
 
         # Map to format outputs
         dataset = dataset.map(
             lambda example: 
             map_fn(
                 example,
-                self.amod_dic,
+                tokenizer=self.tokenizer,
+                dic=self.amod_dic,
                 top=top_pks, 
-                max_seq=kwargs['pep_length'][1]
+                max_seq=max_seq
             ), 
-            remove_columns=['name', 'sequence']
+            remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
+
+        # Filter for length
+        if 'pep_length' in kwargs.keys():
+            dataset = dataset.filter(
+                lambda example: 
+                (len(example['tokenized_sequence']) >= kwargs['pep_length'][0]) &
+                (len(example['tokenized_sequence']) <= kwargs['pep_length'][1])
+            )
+            max_seq = kwargs['pep_length'][1]
+        else:
+            max_seq = None
+        
+        # Filter for charge
+        if 'charge' in kwargs.keys():
+            dataset = dataset.filter(
+                lambda example:
+                (example['precursor_charge'] >= kwargs['charge'][0]) &
+                (example['precursor_charge'] <= kwargs['charge'][1])
+            )
         
         # Shuffle the dataset
         if 'buffer_size' in kwargs.keys():

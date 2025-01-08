@@ -701,5 +701,7 @@ if __name__ == '__main__':
 		)   
 
     # Run training and/or evaluation
-    print(D.evaluation(dset='val', max_batches=1e10))
-    #print(D.TrainEval()[-1])
+    if dsconfig['eval_only']:
+        print(D.evaluation(dset='val', max_batches=1e10))
+    else:
+        print(D.TrainEval()[-1])

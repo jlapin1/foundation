@@ -49,11 +49,17 @@ class RegressorHead(nn.Module):
                  penult_units,
                  norm_type='layer',
                  spectrum_wise=True,
+                 activation=None,
+                 scale=1.0,
                  ):
         super(RegressorHead, self).__init__()
         self.norm_type = norm_type
         norm = mp.get_norm_type(norm_type)
         self.spectrum_wise = spectrum_wise
+        self.act = lambda x: (
+            x.tanh() if activation == 'tanh' else x
+        )
+        self.scale = scale
 
         self.penult = nn.Sequential(
             nn.Linear(in_units, penult_units),
@@ -68,9 +74,9 @@ class RegressorHead(nn.Module):
         out = self.final(out)
         if self.spectrum_wise:
             out = out.mean(dim=1)
-        out = out.abs()
+        out = self.scale * self.act(out)
 
-        return out
+        return out.squeeze()
 
 class SequenceHead(nn.Module):
     def __init__(self, 
@@ -216,6 +222,10 @@ class Header(nn.Module):
         if 'maldi' in head_dic.keys():
             dic = head_dic['maldi']
             self.heads['maldi'] = ClassifierHead(**dic, in_units=IU)
+        
+        if 'resid_regr' in head_dic.keys():
+            dic = head_dic['resid_regr']
+            self.heads['resid_regr'] = RegressorHead(**dic, in_units=IU)
 
         self.opts = {
             key: th.optim.Adam(self.heads[key].parameters(), lr=lr)

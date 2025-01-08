@@ -1,6 +1,6 @@
-###############################################################################
-#                                  todo                                       #
-###############################################################################
+################################################################################
+#                                  todo                                        #
+################################################################################
 """
 Nada
 """
@@ -17,6 +17,11 @@ Adam = th.optim.Adam
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
 print("Device:", device)
 
+################################################################################
+#                        Configuration settings                                #
+################################################################################
+
+
 # Immediately read in yaml files to prevent unintended changes to the
 # experiment while I am changing the files outside of the shellscript
 with open("./yaml/config.yaml", 'r') as stream:
@@ -30,12 +35,6 @@ with open("./yaml/tasks.yaml", 'r') as stream:
 with open("./yaml/downstream.yaml") as stream:
     dsconfig = yaml.safe_load(stream)
 config['lr'] = float(config['lr'])
-
-clip_op = (
-    th.nn.utils.clip_grad_value_
-    if config['headclip']['type'] == 'value' else
-    th.nn.utils.clip_grad_norm_
-)
 
 # NOTE about trading information between yaml files:
 # I don't want to have to specify inputs in 2 different yaml files that must be 
@@ -74,18 +73,18 @@ dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['run
 dsconfig['log'] = config['log']
 dsconfig['header'] = config['header']
 
-###############################################################################
-#                                  Loader                                     #
-###############################################################################
+################################################################################
+#                                  Loader                                      #
+################################################################################
 
 from loaders.loader_hf import LoaderHF
 from copy import deepcopy
 
 L = LoaderHF(**dc['loader'])
 
-###############################################################################
-#                                   Model                                     #
-###############################################################################
+################################################################################
+#                                   Model                                      #
+################################################################################
 
 from models.encoder import Encoder
 from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
@@ -111,35 +110,30 @@ assert hasattr(header, 'name')
 # Optimizers
 optencoder = Adam(encoder.parameters(), config['lr'])
 
-def save_all_weights(svdir):
-    U.save_full_model(encoder, optencoder, svdir)
-    # Save all header weights in one file
-    th.save(header.state_dict(), "%s/weights/model_%s.wts"%(svdir, header.name))
-    # Save header optimizer weights individually
-    for task_name in config['tasks']:
-        # optimizer.name should have opt_ already in it (see Header in models)
-        fn = '%s/weights/opt_%s.wts'%(svdir, task_name)
-        U.save_optimizer_state(header.opts[task_name], fn)
-
 if config['load']:
+    # Encoder
     ldpth = config['loadpath']
-    encoder.load_state_dict(th.load(ldpth + 'model_enc.wts', map_location=device))
-    U.load_optimizer_state(
-        optencoder, ldpth + 'opt_encopt.wts', device
-    )
-    header.load_state_dict(th.load(ldpth + 'model_head.wts', map_location=device))
-    for task_name in config['tasks']:
+    enc_file_name = U.find_file('model_enc', ldpth)
+    encoder.load_state_dict(th.load(enc_file_name, map_location=device))
+    opt_file_name = U.find_file('opt_encopt', ldpth)
+    U.load_optimizer_state(optencoder, opt_file_name, device)
+    
+    # Head(s)
+    for task in config['tasks']:
+        head_file_name = U.find_file(task, ldpth)
+        header.heads[task].load_state_dict(th.load(head_file_name, map_location=device))
         # ASSUMPTION: header optimizers follow name convention 
         # opt_{task}.wts.npy
+        opt_file_name = U.find_file("opt_%s"%task, ldpth)
         U.load_optimizer_state(
-            header.opts[task_name], 
-            ldpth + 'opt_%s.wts'%task_name,
+            header.opts[task], 
+            opt_file_name,
             device
         )
 
-###############################################################################
-#                                    Loss                                     #
-###############################################################################
+################################################################################
+#                                    Loss                                      #
+################################################################################
 
 import tasks
 
@@ -148,9 +142,9 @@ T = tasks.all_tasks(tc)
 T = {task: T[task] for task in config['tasks']}
 loss_spec = " ".join(['%s: %%7.5f'%task_name for task_name in T.keys()])
 
-###############################################################################
-#                           Downstream evaluation                             #
-###############################################################################
+################################################################################
+#                           Downstream evaluation                              #
+################################################################################
 
 if not config['debug']:
     import downstream as ds
@@ -160,9 +154,9 @@ if not config['debug']:
         'denovo_ar': ds.DenovoArDSObj,
     }
 
-###############################################################################
-#                                  Training                                   #
-###############################################################################
+################################################################################
+#                                  Training                                    #
+################################################################################
 
 from collections import deque
 from time import time
@@ -178,29 +172,32 @@ def train_step(batch, task, enc_opt, head_opt):
     header.zero_grad()
     head_opt.zero_grad()
     batch = U.Dict2dev(batch, device, inplace=False)
+    head_outputs = [task]
 
     inp = T[task].inptarg(batch)
     inp['length'] = batch['length']
+    
+    if hasattr(encoder, 'its'):
+        if encoder.its == 1: 
+            enc_output = encoder(**inp)
+        else:
+            enc_output = encoder.RecycleTrainOutput(inp)
+    else:
+        enc_output = encoder(**inp)
 
-    head_outputs = [task]
-    enc_output = encoder(**inp)
     prediction = header(enc_output['emb'], head_outputs)
     loss = T[task].loss(prediction[task])
     loss = loss.mean()
     
     loss.backward()
     enc_opt.step()
-    if config['headclip']['use']: 
-        parms = header.heads[task].parameters()
-        clip_op(parms, config['headclip']['max'])
     head_opt.step()
     
     encoder.global_step +=1 
 
     return loss
 
-def evaluation():
-    task = "trinary_mz"
+def evaluation(task):
     encoder.eval()
     header.eval()
 
@@ -225,48 +222,6 @@ def evaluation():
 
     return mean_loss
 
-
-def activations(steps=100, out_name="activations.txt"):
-    lst = [
-        'Qm', 'Qs', 'Km', 'Ks', 
-        'Vm', 'Vs', 'QKm', 'QKs', 
-        'WTSm', 'WTSs', 'ATTm', 'ATTs', 
-        'RESATTm', 'RESATTs', 'FFN1m', 
-        'FFN1s', 'FFN2m', 'FFN2s', 'TBm', 'TBs'
-    ]
-    ll = len(lst)
-
-    encoder.eval()
-    with th.no_grad():
-        others = np.zeros((9,ll))
-        for step, batch in enumerate(L):
-            if step == steps: break
-            print("\rEvaluation step %d/%d"%(step, steps), end='')
-            
-            batch = U.Dict2dev(batch, device, inplace=False)
-
-            mzab_inp = th.cat([batch['mz'][...,None], batch['ab'][...,None]], -1)
-            inp = {
-                'x': mzab_inp,
-                'charge': None,
-                'mass': batch['mass'] if encoder_dic['use_mass'] else None,
-                'length': batch['length'],
-                'return_mask': True,
-                'return_full': True
-            }
-            enc_output = encoder(**inp)
-            stats = np.stack([
-                np.concatenate([[n.cpu().detach().numpy().mean(), n.cpu().detach().numpy().std()] for n in line]) 
-                for line in enc_output['other']
-            ])
-            others += stats
-    others /= steps
-
-    with open(out_name, "a") as f:
-        f.write((" ".join(ll*['%8s']))%tuple(lst) + '\n')
-        for m in range(9):
-            f.write((" ".join(ll*["%8.5f"]))%tuple(others[m]) + '\n')
-
 def save_train_loss(filepath, loss_list):
     if os.path.exists(filepath):
         loss_list = np.append(np.loadtxt(filepath), np.array(loss_list))
@@ -285,7 +240,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
         svdir = 'save/' + timestamp
         U.create_experiment(svdir, svwts=config['svwts'])
         if config['svwts']: 
-            save_all_weights(svdir)
+            U.save_all_weights(svdir, (encoder, optencoder), header, remark="step_0_loss_999999999")
     else:
         svdir = './' # for establishing ds objects below
     
@@ -313,11 +268,9 @@ def train(epochs=1, runlen=50, svfreq=3600):
     svtime = time()
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
     
-    if config['eval_steps']>0: 
-        evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
-    
+    eval_loss = 999999999
     loss_list = []
-    max_step_tick=False
+    max_steps_tick=False
     for epoch in range(epochs):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
@@ -331,6 +284,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
             
             # Train model for a step
             TT=time()
+            #T['trinary_mz'].stdev = 0.5*np.exp(-6.9314718055994526e-06*float(encoder.global_step))
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
             loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
@@ -355,7 +309,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
                 all_loss.append(T[random_task].running_loss['main'][-1])
             
             # Stdout
-            if step%50==0:
+            if step%10==0:
                 means = tuple([
                     task.calc_avg_running_loss()['main']
                     for task_name, task in T.items()
@@ -371,20 +325,22 @@ def train(epochs=1, runlen=50, svfreq=3600):
             
             # Saving weights and testing
             if time()-svtime > svfreq:
-                if swt:
-                    save_all_weights(svdir)
+                remark = "step_%d_loss_%.5f"%(encoder.global_step, eval_loss)
+                last_loss = float(".".join(U.find_file("model_enc", svdir+'/weights').split('_')[-1].split('.')[:-1]))
+                if swt & (eval_loss < last_loss):
+                    U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
                 svtime = time()
 
             # Run evaluation and save training_loss
             if (step+1) % config['steps_per_report'] == 0:
-                eval_loss = evaluation()
+                eval_loss = evaluation(list(T.keys())[0])
                 if msg:
                     Line = "Validation loss at step %d: %.6f\n"%(step+1, eval_loss)
                     U.message_board(Line, "%s/epochout.txt"%svdir)
                     save_train_loss("%s/train_loss.txt"%svdir, loss_list)
                     allepochlines.append(Line)
                 loss_list = []
-
+                
             start_load = time()
             
             # Arrest training at max_steps
@@ -398,6 +354,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
         if max_steps_tick:
             break
 
+        # Std out and logging
         tot_losses = tuple([
             task.calc_avg_total_loss()['main'] for task_name, task in T.items()
         ])
@@ -410,13 +367,10 @@ def train(epochs=1, runlen=50, svfreq=3600):
             U.message_board(Line+'\n', "%s/epochout.txt"%svdir)
             allepochlines.append(Line+"\n")
 
-        if config['eval_steps']>0: 
-            evaluation(config['eval_steps'], '%s/activations.txt'%svdir)
-    
     # End of pre-training
     # Save weights, perhaps
-    if swt:
-        save_all_weights(svdir)
+    #if swt:
+    #    U.save_all_weights(svdir, (encoder, optencoder), header, remark='final')
     # Save gradients, perhaps
     if config['svgrad']:
         with open(svdir+"/parmshapes", 'w') as f: 
@@ -445,7 +399,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
     print()
 
 if __name__ == '__main__':
-
+    
     if config['seed'] is not None:
         np.random.seed(config['seed'])
         th.manual_seed(config['seed'])

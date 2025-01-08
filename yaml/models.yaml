@@ -17,6 +17,7 @@ encoder_dict:
   use_mass: False
   bias: 'pairwise' # 'pairwise' | 'regular' | False | None
   dropout: 0
+  recycling_its: 1
   pw_mz_units: 512
   pw_run_units: 64
   pw_attention_ch: 32
@@ -61,6 +62,11 @@ header_dict:
       num_classes: 2
       norm_type: batch
       penult_units: 512
+    resid_regr:
+      penult_units: 512
+      activation: tanh
+      spectrum_wise: False
+      scale: 1.0
 
 
 

@@ -2,16 +2,11 @@ seed:
 max_peaks: 100
 epochs: 1
 steps_per_report: 10000
-max_steps: 200000
-eval_steps: 0
+max_steps: 1e10
 batch_size: 100
 lr: 1e-4
-headclip:
-  use: False
-  type: norm
-  max: 1
 tasks:
-  - trinary_mz
+  #- trinary_mz
   #- trinary_ab
   #- hidden_mz
   #- hidden_ab
@@ -19,6 +14,7 @@ tasks:
   #- hidden_charge
   #- hidden_mass
   #- maldi
+  - resid_regr
 downstream:
   #- denovo_ar
 

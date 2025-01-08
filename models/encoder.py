@@ -1,4 +1,5 @@
-
+import sys
+sys.path.append("/cmnfs/home/j.lapin/projects/foundational")
 import models.model_parts as mp
 import models.model_parts_pw as pw
 import torch as th
@@ -47,9 +48,9 @@ class Encoder(nn.Module):
                  mz_units=512, # units in mz fourier vector
                  ab_units=256, # units in ab fourier vector
                  subdivide=False, # subdivide mz units in 2s and expand-concat
-                 use_charge=True, # inject charge into TransBlocks
+                 use_charge=False, # inject charge into TransBlocks
                  use_energy=False, # inject energy into TransBlocks
-                 use_mass=True, # injuect mass into TransBlocks
+                 use_mass=False, # injuect mass into TransBlocks
                  ce_units=256, # units for transformation of mzab fourier vectors
                  att_d=64, # attention qkv dimension units
                  att_h=4,  # attention qkv heads
@@ -95,9 +96,7 @@ class Encoder(nn.Module):
         self.its = recycling_its
         self.device = device
         
-        # Position modulation
-        self.alpha = nn.Parameter(th.tensor(0.1), requires_grad=True)
-        
+        # m/z Fourier Features
         mdim = mz_units//4 if subdivide else mz_units
         self.mdim = mdim
         self.MzSeq = nn.Identity() # # nn.Sequential(nn.Linear(mdim, mdim), nn.SiLU())
@@ -186,26 +185,27 @@ class Encoder(nn.Module):
         self.norm = mp.get_norm_type(norm_type)
         
         # Recycling embedder
-        self.recyc = nn.Sequential(
-            self.norm(running_units) if prenorm else nn.Identity(),
-            nn.Linear(running_units, running_units) if False else nn.Identity(),
-            nn.Identity() if prenorm else self.norm(running_units)
-        ) if self.its > 1 else nn.Identity()
+        # self.alpha must always be defined for backwards compatibility (until 240826)
+        grad = True if recycling_its > 1 else False
+        self.alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
+        if self.its > 1: 
+            beta =  0.1 if recycling_its > 1 else 1.0
+            self.embed_0 = nn.Parameter(
+                nn.init.normal_(th.empty(1000, running_units), 0, 1), 
+                requires_grad=True
+            )
+            self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=True)
+            self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=True)
+            self.recyc = nn.Sequential(
+                self.norm(running_units) if prenorm else nn.Identity(),
+                nn.Linear(running_units, running_units) if False else nn.Identity(),
+                nn.Identity() if prenorm else self.norm(running_units)
+            ) if self.its > 1 else nn.Identity()
         
-        """# Recycling modulator
-        self.alphacyc = ( 
-            tf.Variable(1. / self.its, trainable=True) 
-            if self.its > 1 else 
-            tf.Variable(1.0, trainable=False)
-        )"""
+            self.alphacyc = nn.Parameter(th.tensor(1. / self.its), requires_grad=True)
         
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
-        pos = mp.FourierFeatures(
-            th.arange(1000, dtype=th.float32), 1, 5000, self.run_units,
-        )
-        self.pos = nn.Parameter(pos, requires_grad=False)
-
         self.apply(init_encoder_weights)
     
     def total_params(self):
@@ -215,6 +215,7 @@ class Encoder(nn.Module):
         Mz, ab = th.split(x, 1, -1)
         
         Mz = Mz.squeeze()
+        if x.shape[0] == 1: Mz = Mz[None] # for batch_size=1
         if self.subdivide:
             mz = mp.subdivide_float(Mz)
             mz_emb = mp.FourierFeatures(mz, 1, 500, self.mdim)
@@ -274,7 +275,7 @@ class Encoder(nn.Module):
         # Create mask
         if length != None:
             grid = th.tile(
-                th.arange(self.sl, dtype=th.int32)[None].to(x.device), 
+                th.arange(x.shape[1], dtype=th.int32)[None].to(x.device), 
                 (x.shape[0], 1)
             ) # bs, seq_len
             mask = grid >= length[:, None]
@@ -306,18 +307,32 @@ class Encoder(nn.Module):
             #pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
             pwemb = self.PwSeq(pwemb)
         
-        out = self.first(mabemb)# + self.alpha*self.pos[:x.shape[1]]
+        out = self.first(mabemb)
         
         # Reycling the embedding with normalization, perhaps dense transform
-        out += self.recyc(emb)
+        if self.its > 1:
+            out = self.alpha*out + self.alphacyc*self.recyc(emb)
         
-        out = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
-        emb = out['out']
+        main = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
         
-        output = {'emb': emb, 'mask': mask, 'other': out['other']}
+        emb = (
+            self.main_alpha*emb + self.main_beta*main['out']
+            if self.its > 1 else main['out']
+        )
+        
+        output = {'emb': emb, 'mask': mask, 'other': main['other']}
         
         return output
     
+    def RecycleTrainOutput(self, input_dict):
+        iterations = th.randint(0, self.its, ())
+        with th.no_grad():
+            emb = self(**input_dict, iterations=iterations)['emb']
+        input_dict['emb'] = emb
+        output = self(**input_dict, iterations=1)
+
+        return output
+
     def forward(self, 
              x,
              charge=None, 
@@ -327,19 +342,23 @@ class Encoder(nn.Module):
              emb=None, 
              inp_mask=None,
              tag_array=None,
-             its=None, 
+             iterations=None, 
              return_mask=False,
              return_full=False
     ):
-        its = self.its  if its==None else its
+        its = self.its  if iterations==None else iterations
         
         # Recycled embedding
         emb = (
             emb 
-            if emb is not None else 
-            th.zeros(x.shape[0], self.sl, self.run_units)
+            if emb is not None else (
+                th.zeros(x.shape[0], self.sl, self.run_units)
+                if self.its == 1 else
+                self.embed_0[None, :x.shape[1]].tile([x.shape[0], 1, 1])
+            )
         ).to(x.device)
         
+        output = {'emb': emb, 'other': None}
         for _ in range(its):
             output = self.UpdateEmbed(
                 x, 
@@ -353,7 +372,11 @@ class Encoder(nn.Module):
                 return_mask=return_mask,
                 return_full=return_full
             )
+            emb = output['emb']
         
         return output
 
-            
+#model = Encoder(recycling_its=4)
+#inp = th.randn(100,100,2)
+#out = model(inp, 2)
+
