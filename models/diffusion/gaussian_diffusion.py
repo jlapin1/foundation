@@ -25,6 +25,18 @@ from models.diffusion.losses import normal_kl
 #from src.utils.show_sampling_progress import pprint_sentences
 import os
 
+def my_schedule(num_diffusion_steps):
+    frac = num_diffusion_steps**-1
+    epsilon = 0.5*frac
+    betas = betas_for_alpha_bar(
+        num_diffusion_steps,
+        lambda t: 1 - (t + epsilon)**0.2,
+    )
+    # smooth edge
+    betas[0] = betas[0] / 2
+    betas[-2] = (betas[-3]+betas[-1]) / 2
+    return betas
+
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     """
     Get a pre-defined beta schedule for the given name.
@@ -71,7 +83,8 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
             beta_mid, beta_end, num_diffusion_timesteps - 10, dtype=np.float64
         )
         return np.concatenate([first_part, second_part])
-
+    elif schedule_name == 'mine':
+        return my_schedule(num_diffusion_timesteps)
     else:
         raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
 
@@ -431,7 +444,10 @@ class GaussianDiffusion:
             model_kwargs['self_conditions'] = model_output.detach()
                         
         model_output = model(x = x_t, ts = self._scale_timesteps(ts), **model_kwargs)
-
+        
+        ################################
+        ### MSE loss on model output ###
+        ################################
         target = {
             ModelMeanType.PREVIOUS_X: self.q_posterior_mean_variance(x_start=x_start, x_t=x_t, t=ts)[
                 0
@@ -461,12 +477,20 @@ class GaussianDiffusion:
             _loss_log[input_ids==self.pad_tok_id] = 0
             self._loss_history_update(ts, _loss_log, input_ids!=self.pad_tok_id, training_step)
         """
-
+        
+        ###########################
+        ### Last time step loss ###
+        ###########################
         out_mean, _, _ = self.q_mean_variance(
             x_start, th.LongTensor([self.num_timesteps - 1]).to(x_start.device)
         )
         tT_loss = mean_flat(out_mean**2)
+
+        # TODO insert vb_terms here for learned sigma
         
+        ###########################################################
+        ### Decoder negative log likelihead (logits and labels) ###
+        ###########################################################
         decoder_nll = self.token_discrete_loss(x_start, get_logits, input_ids, mask=loss_mask)
         
         terms['decoder_nll'] = decoder_nll
