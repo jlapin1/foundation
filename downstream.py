@@ -117,7 +117,7 @@ class DownstreamObj:
             self.encoder.parameters(), self.starting_lr
         )
 
-        print(f"Total Encoder parameters: {self.encoder.total_params():,}") 
+        print(f"<MYCOMMENT> Total Encoder parameters: {self.encoder.total_params():,}") 
 
     def save_head(self, fp='./head.wts'):
         th.save(self.head.state_dict(), fp)
@@ -313,7 +313,7 @@ class BaseDenovo(DownstreamObj):
         func = self.head.predict_sequence if self.ar else self.call
         
         # losses
-        out = {'ce': 0, 'recall': 0, 'precision': 0, 'auprc': 0,}
+        out = {'ce': 0, 'recall': 0, 'precision': 0, 'peptide': 0, 'auprc': 0,}
         tots = {}
 
         # Progress bar
@@ -321,7 +321,7 @@ class BaseDenovo(DownstreamObj):
             self.data.val_size // self.data.dataloader[dset].batch_size,
             max_batches,
         )
-        pbar = tqdm(self.data.dataloader[dset], total=val_steps)
+        pbar = tqdm(self.data.dataloader[dset], total=val_steps, leave=False)
         
         self.encoder.eval()
         self.head.eval()
@@ -360,7 +360,7 @@ class BaseDenovo(DownstreamObj):
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
         out['auprc'] = out['auprc'] / steps
         for metric in tots.keys():
-            out[metric] = tots[metric] /  steps
+            out[metric] = float(tots[metric] /  steps)
         
         self.on_eval_end()
 
@@ -375,7 +375,7 @@ class BaseDenovo(DownstreamObj):
             self.train_epoch()
             self.on_train_epoch_end()
             
-            out = self.evaluation(dset=eval_dset, max_batches=10)
+            out = self.evaluation(dset=eval_dset, max_batches=100)
             out['epoch'] = i+1
             wandb.log(out)
             out.pop('epoch')
@@ -421,7 +421,7 @@ class DenovoArDSObj(BaseDenovo):
             encoder=self.encoder # encoder is set by inherited class
         )
         self.predict_sequence = self.head.predict_sequence
-        print(f"Total Decoder parameters: {self.head.decoder.total_params():,}")
+        print(f"<MYCOMMENT> Total Decoder parameters: {self.head.decoder.total_params():,}")
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
             self.head.load_weights(self.svdir + '/head.wts', device)
         self.head.decoder.to(device)
@@ -687,7 +687,7 @@ if __name__ == '__main__':
         svdir = './'
 
     # Downstream object
-    print("Denovo sequencing")
+    print("<MYCOMMENT> Denovo sequencing")
     D = DenovoDiffusionObj(dsconfig, svdir=svdir)
 
     # WandB
@@ -708,7 +708,7 @@ if __name__ == '__main__':
 
     # Run training and/or evaluation
     if dsconfig['eval_only']:
-        out = D.evaluation(dset='val', max_batches=1e10)
+        out = D.evaluation(dset='val', max_batches=2)
         print("\n", out)
     else:
         print(D.TrainEval()[-1])

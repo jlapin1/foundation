@@ -82,10 +82,14 @@ def AccRecPrec(target, prediction, null_value):
     prec_bool = prediction != null_value
     #precsum = tf.reduce_sum(tf.gather_nd(boolean, prec_inds))
     precsum = boolean[prec_bool].sum()
+    
+    boolean[target == null_value] *= 0
+    peptide_sum = (boolean.sum(1) == recall_bool.sum(1)).sum()
     out = {
         'accuracy' : {'sum': accsum,  'total': target.numel()   },
         'recall'   : {'sum': recsum,  'total': recall_bool.sum()},
         'precision': {'sum': precsum, 'total': prec_bool.sum()  },
+        'peptide'  : {'sum': peptide_sum, 'total': target.shape[0]},
     }
 
     return out
