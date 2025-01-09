@@ -86,9 +86,9 @@ def AccRecPrec(target, prediction, null_value):
     boolean[target == null_value] *= 0
     peptide_sum = (boolean.sum(1) == recall_bool.sum(1)).sum()
     out = {
-        'accuracy' : {'sum': accsum,  'total': target.numel()   },
-        'recall'   : {'sum': recsum,  'total': recall_bool.sum()},
-        'precision': {'sum': precsum, 'total': prec_bool.sum()  },
+        'accuracy' : {'sum': accsum,      'total': target.numel()   },
+        'recall'   : {'sum': recsum,      'total': recall_bool.sum()},
+        'precision': {'sum': precsum,     'total': prec_bool.sum()  },
         'peptide'  : {'sum': peptide_sum, 'total': target.shape[0]},
     }
 
