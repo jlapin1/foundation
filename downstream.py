@@ -12,6 +12,7 @@ from models.encoder import Encoder
 from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import SequenceHead, ClassifierHead
 from models.decoder import DenovoDiffusionDecoder
+from models.decoder_ import DenovoDecoder
 import os
 from tqdm import tqdm
 from collections import deque
@@ -206,7 +207,7 @@ class DownstreamObj:
     def train_epoch(self, svfreq=10000):
         
         bs = self.config['batch_size']
-        running_loss = {'loss': deque(maxlen=50), 'mse': deque(maxlen=50), 'decoder_nll': deque(maxlen=50), 'tT': deque(maxlen=50)}
+        running_loss = {key: deque(maxlen=50) for key in self.training_loss_keys}
         running_time = [deque(maxlen=50) for _ in range(5)];running_time[-1].append(0)
         
         # Progress bar
@@ -224,13 +225,12 @@ class DownstreamObj:
 
             # Are we training the encoder? Two conditions must be met.
             train_encoder = (
-                True 
-                if (
+                True if (
                     self.config['train_encoder'] and 
                     (self.global_step >= self.config['encoder_start'])
-                ) else 
-                False
+                ) else False
             ) # boolean argument into train_step
+            
             losses = self.train_step(batch, train_encoder)
             self.global_step += 1
             split1 = time()
@@ -245,22 +245,11 @@ class DownstreamObj:
             #print("\rTraining step %d  Running Loss: %s (%.3f s)"%(step+1, loss_printout, rtm), end='')
             pbar.set_description(f"Running Loss: {loss_printout} ({rtm:.3} s)")
 
-            global_grad_norm_encoder = U.global_grad_norm(self.encoder)
-            global_grad_norm_decoder = U.global_grad_norm(self.head)
             if self.config['log_wandb']:
-                wandb.log({
-                    "Total loss": losses['loss'],
-                    "Total run loss": rlm['loss'],
-                    "MSE loss": losses['mse'],
-                    "MSE run loss": rlm['mse'],
-                    "DecoderNLL loss": losses['decoder_nll'],
-                    "DecoderNLL run loss": rlm['decoder_nll'],
-                    "tT loss": losses['tT'],
-                    "tT run loss": rlm['tT'],
-                    'Global step': self.global_step,
-                    "Global grad norm encoder": global_grad_norm_encoder,
-                    "Global grad norm decoder": global_grad_norm_decoder,
-                })
+                global_grad_norm_encoder = U.global_grad_norm(self.encoder)
+                global_grad_norm_decoder = U.global_grad_norm(self.head)
+                self.log_wandb(losses, rlm, global_grad_norm_encoder, global_grad_norm_decoder)
+                
 
             self.running_loss.append(rlm['loss'])
             if self.log and (self.global_step % svfreq == 0):
@@ -339,6 +328,8 @@ class BaseDenovo(DownstreamObj):
                 )
                 embedding = self.encoder(**enc_input)
                 prediction, probs = self.head.predict_sequence(embedding, batch)
+                prediction = prediction[..., :target.shape[1]]
+                probs = probs[:, :target.shape[1]]
                 pred = probs.transpose(-1,-2)
 
             out['ce'] += (
@@ -404,6 +395,15 @@ class BaseDenovo(DownstreamObj):
             
         return lines, highline
 
+    def on_train_epoch_end(self, *args, **kwargs):
+        pass
+
+    def on_eval_step_end(self, *args, **kwargs):
+        pass
+
+    def on_eval_end(self, *args, **kwargs):
+        pass
+
 class DenovoArDSObj(BaseDenovo):
     def __init__(self, config, base_model=None, svdir='./dswts/'):
         task = 'denovo_ar'
@@ -411,6 +411,7 @@ class DenovoArDSObj(BaseDenovo):
             config=config, task=task, base_model=base_model, ar=True, 
             svdir=svdir
         )
+        self.training_loss_keys = ['loss']
 
         # Head model
         head_dict = self.config[task]['head_dict']
@@ -502,7 +503,16 @@ class DenovoArDSObj(BaseDenovo):
         if trenc:
             self.opt_encoder.step()
         
-        return loss
+        return {'loss': loss}
+
+    def log_wandb(self, losses, rlm, encoder_norm, decoder_norm):
+        wandb.log({
+            "Total loss": losses['loss'],
+            "Total run loss": rlm['loss'],
+            'Global step': self.global_step,
+            "Global grad norm encoder": encoder_norm,
+            "Global grad norm decoder": decoder_norm,
+        })
 
 from models.diffusion.model_utils import create_model_and_diffusion
 
@@ -513,6 +523,7 @@ class DenovoDiffusionObj(BaseDenovo):
             config=config, task=task, base_model=base_model, ar=False, 
             svdir=svdir
         )
+        self.training_loss_keys = ['loss', 'mse', 'decoder_nll', 'tT']
 
         # Diffusion object
         if diff_config is None:
@@ -627,6 +638,21 @@ class DenovoDiffusionObj(BaseDenovo):
             self.opt_encoder.step()
         
         return losses
+    
+    def log_wandb(self, losses, rlm, encoder_norm, decoder_norm):
+        wandb.log({
+            "Total loss": losses['loss'],
+            "Total run loss": rlm['loss'],
+            "MSE loss": losses['mse'],
+            "MSE run loss": rlm['mse'],
+            "DecoderNLL loss": losses['decoder_nll'],
+            "DecoderNLL run loss": rlm['decoder_nll'],
+            "tT loss": losses['tT'],
+            "tT run loss": rlm['tT'],
+            'Global step': self.global_step,
+            "Global grad norm encoder": encoder_norm,
+            "Global grad norm decoder": decoder_norm,
+        })
    
     def on_train_epoch_end(self):
         avg_losses = self.diff_obj.my_loss_history / (self.diff_obj.my_loss_count+1e-7)[...,None]
@@ -688,7 +714,8 @@ if __name__ == '__main__':
 
     # Downstream object
     print("<MYCOMMENT> Denovo sequencing")
-    D = DenovoDiffusionObj(dsconfig, svdir=svdir)
+    #D = DenovoDiffusionObj(dsconfig, svdir=svdir)
+    D = DenovoArDSObj(dsconfig, svdir=svdir)
 
     # WandB
     #dsconfig['log_wandb'] = config['log_wandb']
