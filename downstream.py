@@ -656,7 +656,8 @@ class DenovoDiffusionObj(BaseDenovo):
    
     def on_train_epoch_end(self):
         avg_losses = self.diff_obj.my_loss_history / (self.diff_obj.my_loss_count+1e-7)[...,None]
-        np.savetxt("train_loss_by_timestep.tab", avg_losses, delimiter='\t', fmt='%.8f')
+        save_path = os.path.join(self.svdir, "train_loss_by_timestep.tab")
+        np.savetxt(save_path, avg_losses, delimiter='\t', fmt='%.8f')
         self.diff_obj.my_loss_history = np.zeros((self.diff_obj.num_timesteps, 3))
         self.diff_obj.my_loss_count = np.zeros((self.diff_obj.num_timesteps,))
     
@@ -673,7 +674,8 @@ class DenovoDiffusionObj(BaseDenovo):
         ganz_batch = np.concatenate(self.eval_score, axis=0)
         ganz_batch_mean = ganz_batch.mean(0)
         self.eval_score = []
-        np.savetxt("eval_mse_by_timestep.tab", ganz_batch_mean, delimiter='\n', fmt='%.6f')
+        save_path = os.path.join(self.svdir, "eval_mse_by_timestep.tab")
+        np.savetxt(save_path, ganz_batch_mean, delimiter='\n', fmt='%.6f')
 
 if __name__ == '__main__':
 
