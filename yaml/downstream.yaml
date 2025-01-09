@@ -12,8 +12,9 @@ steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
 log: False # write to downstream_only directory
-log_wandb: True
-save_weights: True
+log_wandb: False
+save_weights: False
+
 # Loader options
 loader:
   dataset_path: /cmnfs/data/proteomics/foundational_model/9_species_V1
@@ -35,7 +36,9 @@ loader:
   scratch:
     use: False
     path: /media/storage/scratch/ninespecies/
+
 # Downstream task specific options
+denovo_type: ar # diffusion | ar
 denovo_ar:
   head_dict:
     running_units: 512

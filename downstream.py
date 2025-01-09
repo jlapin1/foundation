@@ -11,8 +11,8 @@ import numpy as np
 from models.encoder import Encoder
 from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import SequenceHead, ClassifierHead
-from models.decoder import DenovoDiffusionDecoder
-from models.decoder_ import DenovoDecoder
+from models.diff_decoder import DenovoDiffusionDecoder
+from models.decoder import DenovoDecoder
 import os
 from tqdm import tqdm
 from collections import deque
@@ -110,7 +110,7 @@ class DownstreamObj:
             if self.config['dswts'] is not None:
                 weights_path = glob(os.path.join(self.svdir, "weights", "encoder*.wts"))
                 assert len(weights_path) == 1, "Multiple encoder weights found in weights directory"
-                print("<MYCOMMENT> Loading previous encoder weights")
+                print("<DSCOMMENT> Loading previous encoder weights")
                 self.encoder.load_state_dict(th.load(weights_path[0], map_location=device))
         
         self.encoder.to(device)
@@ -118,7 +118,7 @@ class DownstreamObj:
             self.encoder.parameters(), self.starting_lr
         )
 
-        print(f"<MYCOMMENT> Total Encoder parameters: {self.encoder.total_params():,}") 
+        print(f"<DSCOMMENT> Total Encoder parameters: {self.encoder.total_params():,}") 
 
     def save_head(self, fp='./head.wts'):
         th.save(self.head.state_dict(), fp)
@@ -422,7 +422,7 @@ class DenovoArDSObj(BaseDenovo):
             encoder=self.encoder # encoder is set by inherited class
         )
         self.predict_sequence = self.head.predict_sequence
-        print(f"<MYCOMMENT> Total Decoder parameters: {self.head.decoder.total_params():,}")
+        print(f"<DSCOMMENT> Total Decoder parameters: {self.head.decoder.total_params():,}")
         if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
             self.head.load_weights(self.svdir + '/head.wts', device)
         self.head.decoder.to(device)
@@ -548,10 +548,10 @@ class DenovoDiffusionObj(BaseDenovo):
             clip_denoised=diff_config['clip_denoised'],
             **config['denovo_diff']['head_dict'],
         )
-        print(f"<MYCOMMENT> Total Decoder parameters: {self.head.total_params():,}")
+        print(f"<DSCOMMENT> Total Decoder parameters: {self.head.total_params():,}")
         possible_weights_path = os.path.join(self.svdir, "weights", "head.wts")
         if config['dswts'] is not None and os.path.exists(possible_weights_path):
-            print("<MYCOMMENT> Loading previous decoder weights")
+            print("<DSCOMMENT> Loading previous decoder weights")
             self.head.load_state_dict(th.load(possible_weights_path, map_location=device))
         self.head.to(device)
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
@@ -708,14 +708,18 @@ if __name__ == '__main__':
         U.create_experiment(svdir, svwts=config['svwts'])
         with open(svdir + '/experiment_header', 'w') as f:
             f.write("Experiment header: " + config['header'])
-        print("<MYCOMMENT> Experiment is writing to directory %s"%svdir)
+        print("<DSCOMMENT> Experiment is writing to directory %s"%svdir)
     else:
         svdir = './'
 
     # Downstream object
-    print("<MYCOMMENT> Denovo sequencing")
-    #D = DenovoDiffusionObj(dsconfig, svdir=svdir)
-    D = DenovoArDSObj(dsconfig, svdir=svdir)
+    print("<DSCOMMENT> Denovo sequencing")
+    if 'diff' in dsconfig['denovo_type']:
+        print("<DSCOMMENT> Using diffusion decoder")
+        D = DenovoDiffusionObj(dsconfig, svdir=svdir)
+    else:
+        print("<DSCOMMENT> Using autoregressive decoder")
+        D = DenovoArDSObj(dsconfig, svdir=svdir)
 
     # WandB
     #dsconfig['log_wandb'] = config['log_wandb']
