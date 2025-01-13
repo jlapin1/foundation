@@ -1,4 +1,4 @@
-eval_only: False
+eval_only: True
 batch_size: 100
 lr: 0.0001
 lr_warmup: False
@@ -6,7 +6,7 @@ lr_warmup_start: 1.0e-6
 lr_warmup_end: 1.0e-4
 lr_warmup_steps: 20000
 pretrain_path: # if starting with a pretrained encoder
-dswts: # Load weights from previous downstream run (project path->timestamp)
+dswts: save/downstream_only/2025-01-08_18-59-11 # Load weights from previous downstream run (project path->timestamp)
 epochs: 100
 steps_per_epoch: 10000
 train_encoder: True
@@ -38,7 +38,7 @@ loader:
     path: /media/storage/scratch/ninespecies/
 
 # Downstream task specific options
-denovo_type: ar # diffusion | ar
+denovo_type: other # *diff* | *
 denovo_ar:
   head_dict:
     running_units: 512

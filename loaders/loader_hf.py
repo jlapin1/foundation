@@ -102,8 +102,8 @@ class LoaderHF:
         ss_path = os.path.join(dataset_path, "species_sizes.txt")
         if os.path.exists(ss_path):
             species_sizes = pd.read_csv(ss_path, sep=" ", header=None, names=["species", "count"], index_col="species")
-            self.val_size = float(species_sizes.query(f"species == '{val_species}'")['count'].iloc[0])
-            self.train_size = float(species_sizes.query(f"species != '{val_species}'")['count'].sum())
+            self.val_size = int(species_sizes.query(f"species == '{val_species}'")['count'].iloc[0])
+            self.train_size = int(species_sizes.query(f"species != '{val_species}'")['count'].sum())
         else:
             None
 

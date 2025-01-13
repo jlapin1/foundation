@@ -423,8 +423,9 @@ class DenovoArDSObj(BaseDenovo):
         )
         self.predict_sequence = self.head.predict_sequence
         print(f"<DSCOMMENT> Total Decoder parameters: {self.head.decoder.total_params():,}")
-        if config['pretrain_path'] is not None and os.path.exists(self.svdir + '/head.wts'):
-            self.head.load_weights(self.svdir + '/head.wts', device)
+        if os.path.exists(os.path.join(self.svdir, 'weights/head.wts')):
+            print("<DSCOMMENT> Loading previous decoder weights")
+            self.head.load_weights(os.path.join(self.svdir, 'weights/head.wts'), device)
         self.head.decoder.to(device)
         
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
@@ -741,7 +742,7 @@ if __name__ == '__main__':
 
     # Run training and/or evaluation
     if dsconfig['eval_only']:
-        out = D.evaluation(dset='val', max_batches=2)
+        out = D.evaluation(dset='val', max_batches=1e10)
         print("\n", out)
     else:
         print(D.TrainEval()[-1])
