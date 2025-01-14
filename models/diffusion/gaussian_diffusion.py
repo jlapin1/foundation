@@ -20,10 +20,12 @@ import numpy as np
 import torch as th
 
 from models.diffusion.nn import mean_flat
-from models.diffusion.losses import normal_kl
+from models.diffusion.losses import normal_kl, discretized_gaussian_log_likelihood
 
 #from src.utils.show_sampling_progress import pprint_sentences
 import os
+
+device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
 def my_schedule(num_diffusion_steps):
     frac = num_diffusion_steps**-1
@@ -199,6 +201,7 @@ class GaussianDiffusion:
         pad_tok_id=None,
         loss_update_granu=None,
         schedule_update_stride=0,
+        vlb_weight=0.001,
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -207,6 +210,7 @@ class GaussianDiffusion:
         self.model_arch = model_arch
         self.pad_tok_id = pad_tok_id
         assert self.pad_tok_id is not None
+        self.vlb_weight = vlb_weight
 
         self.token_max_length = token_max_length
         self.save_dir = save_dir
@@ -215,6 +219,7 @@ class GaussianDiffusion:
 
         betas = np.array(betas, dtype=np.float64)
         self.betas = betas
+        self.logbeta = th.tensor(np.log(betas), device=device)
         assert (betas > 0).all() and (betas <= 1).all()
 
         self.num_timesteps = int(betas.shape[0])
@@ -251,19 +256,24 @@ class GaussianDiffusion:
         self.log_one_minus_alphas_cumprod = np.log(1.0 - self.alphas_cumprod)
         self.sqrt_recip_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod)
         self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod - 1)
-
+        
         self.posterior_variance = (
             betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         )
-        self.posterior_log_variance_clipped = np.log(
+
+        # ME: I initialize these on device because I was having an issue with CUDA device side
+        #     assert errors. The problem was not fixed by doing this, but I might as well keep
+        #     them on the device to save time compared to constantly transfering the numpy
+        #     tensors onto the GPU.
+        self.posterior_log_variance_clipped = th.tensor(np.log(
             np.append(self.posterior_variance[1], self.posterior_variance[1:])
-        )
-        self.posterior_mean_coef1 = (
+        ), device=device)
+        self.posterior_mean_coef1 = th.tensor(
             betas * np.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
-        )
-        self.posterior_mean_coef2 = (
+        , device=device)
+        self.posterior_mean_coef2 = th.tensor(
             (1.0 - self.alphas_cumprod_prev) * np.sqrt(alphas) / (1.0 - self.alphas_cumprod)
-        )
+        , device=device)
 
         self.training_mode = training_mode
         #print("training mode is ", training_mode)
@@ -441,9 +451,10 @@ class GaussianDiffusion:
         if np.random.uniform() > 0.5:
             with th.no_grad():
                 model_output = model(x = x_t, ts = self._scale_timesteps(ts), **model_kwargs)
-            model_kwargs['self_conditions'] = model_output.detach()
+            model_kwargs['self_conditions'] = model_output['mean'].detach()
                         
         model_output = model(x = x_t, ts = self._scale_timesteps(ts), **model_kwargs)
+        model_output_mean = model_output['mean']
         
         ################################
         ### MSE loss on model output ###
@@ -457,12 +468,12 @@ class GaussianDiffusion:
         }[self.model_mean_type]
 
         assert (
-            model_output.shape == target.shape == x_start.shape
-        ), f"model_output.shape: {model_output.shape}, target.shape: {target.shape}, x_start.shape: {x_start.shape}"
+            model_output_mean.shape == target.shape == x_start.shape
+        ), f"model_output.shape: {model_output_mean.shape}, target.shape: {target.shape}, x_start.shape: {x_start.shape}"
         # the usual diffusion loss
         terms = {}
-        terms["mse"] = mean_flat((target - model_output) ** 2, loss_mask)
-        model_out_x_start = self.x0_helper(model_output, x_t, ts)["pred_xstart"]
+        terms["mse"] = mean_flat((target - model_output_mean) ** 2, loss_mask)
+        model_out_x_start = self.x0_helper(model_output_mean, x_t, ts)["pred_xstart"]
         t0_mask = ts == 0
         t0_loss = mean_flat((x_start_mean - model_out_x_start) ** 2, loss_mask)
         terms["mse"] = th.where(t0_mask, t0_loss, terms["mse"])
@@ -486,16 +497,31 @@ class GaussianDiffusion:
         )
         tT_loss = mean_flat(out_mean**2)
 
-        # TODO insert vb_terms here for learned sigma
-        
         ###########################################################
         ### Decoder negative log likelihead (logits and labels) ###
         ###########################################################
         decoder_nll = self.token_discrete_loss(x_start, get_logits, input_ids, mask=loss_mask)
-        
+                
+        ##################
+        ### Total loss ###
+        ##################
         terms['decoder_nll'] = decoder_nll
         terms['tT'] = tT_loss
         terms["loss"] = terms["mse"] + (decoder_nll + tT_loss)
+
+        #########################################################
+        ### Variational lower bound and NLL for learned sigma ###
+        #########################################################
+        if model.model.output_sigma:
+            vlb_terms = self.my_vb_terms_bpd(
+                x_start, 
+                x_t,
+                ts,
+                mask=loss_mask,
+                model_output=model_output
+            )
+            terms['vlb_terms'] = vlb_terms
+            terms['loss'] += self.vlb_weight * vlb_terms
 
         # My loss tracking
         ts_cpu = ts.detach().cpu()
@@ -589,7 +615,14 @@ class GaussianDiffusion:
 
         return decoder_nll
 
-    def p_mean_variance(self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None):
+    def p_mean_variance(self, 
+        model, 
+        x, t, 
+        clip_denoised=True, 
+        denoised_fn=None, 
+        model_kwargs=None, 
+        model_output=None,
+    ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
         the initial x, x_0.
@@ -621,11 +654,24 @@ class GaussianDiffusion:
         if 'self_conditions' not in model_kwargs:
             model_kwargs["self_conditions"] = th.zeros_like(x)
             
-        model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+        model_output = (
+            model(x, self._scale_timesteps(t), **model_kwargs)
+            if model_output is None else
+            model_output
+        )
+        model_output_mean = model_output['mean']
 
-        model_kwargs["self_conditions"] = model_output
-          
-
+        model_kwargs["self_conditions"] = model_output_mean
+        
+        if 'var' in model_output: #FIXME More appropriate control condition?
+            frac = model_output['var']
+            logvar = (
+                frac * _extract_into_tensor(self.logbeta, t, frac.shape) +
+                (1.-frac) * _extract_into_tensor(self.posterior_log_variance_clipped, t, frac.shape)
+            )
+            assert logvar.shape == model_output_mean.shape
+        else:
+            logvar = th.tensor(1.)
         model_variance, model_log_variance = {
             # for fixedlarge, we set the initial (log-)variance like so
             # to get a better decoder log likelihood.
@@ -639,9 +685,16 @@ class GaussianDiffusion:
                 self.posterior_variance,
                 self.posterior_log_variance_clipped,
             ),
+            ModelVarType.LEARNED_RANGE: (
+                th.exp(logvar),
+                logvar,
+            )
         }[self.model_var_type]
-        model_variance = _extract_into_tensor(model_variance, t, x.shape)
-        model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
+        # ME: I needed to put this if statement in because there was constantly a device side assert
+        #     error triggered originating often from these 2 lines when using learned_sigma
+        if self.model_var_type != ModelVarType.LEARNED_RANGE:
+            model_variance = _extract_into_tensor(model_variance, t, x.shape)
+            model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
 
         def process_xstart(x):
             if denoised_fn is not None:
@@ -652,16 +705,16 @@ class GaussianDiffusion:
 
         if self.model_mean_type == ModelMeanType.PREVIOUS_X:
             pred_xstart = process_xstart(
-                self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output)
+                self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output_mean)
             )
             model_mean = model_output
         elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
             if self.model_mean_type == ModelMeanType.START_X:
-                pred_xstart_original = model_output
-                pred_xstart = process_xstart(model_output)
+                pred_xstart_original = model_output_mean
+                pred_xstart = process_xstart(model_output_mean)
             else:
                 pred_xstart = process_xstart(
-                    self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
+                    self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output_mean)
                 )
                 pred_xstart_original = pred_xstart
             model_mean, _, _ = self.q_posterior_mean_variance(x_start=pred_xstart, x_t=x, t=t)
@@ -1216,6 +1269,75 @@ class GaussianDiffusion:
             "nll": nll_loss,
         }
 
+    def my_vb_terms_bpd(
+        self, 
+        x_start, 
+        x_t, 
+        t,
+        x_0=None,
+        model_output=None,
+        mask=None,
+    ):
+        """
+        What is going on, in my words.
+
+        1. Using the original image (x_start) and the forward diffused image (x_t), get
+           the actual mean and variance of the process distributions at timeste t.
+        
+        2. Using the model's predicted original image (x_0) and the forward diffused
+           image (x_t), get the model's distribution mean and variance at timestep t.
+
+        3. Calculate the KL divergence between these 2 distributions, aka how well does
+           the actual distribution and the model's calculated distribution overlap?
+           - When true and model variances are the same (not learned), then
+             KL = (true_mean - model_mean)**2 / 2*log(2)*variance
+
+        4. Calculate negative log likelihood between model's predicted normal
+           distribution and the actual image (x_start).
+
+        5. Return NLL for transition from first diffused image to final image, KL for
+           all other timesteps.
+        """
+
+        # Get true mean and logvar from x_start and x_t
+        true_mean = (
+            _extract_into_tensor(self.posterior_mean_coef1, t, x_t.shape) * x_start + 
+            _extract_into_tensor(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        )
+        true_logvar = _extract_into_tensor(self.posterior_log_variance_clipped, t, x_t.shape)
+
+        # Get model mean, logvar
+        #if self.model.self_condition:
+        #    x_0 = th.zeros_like(x_t) if x_0==None else x_0
+        #    input_sample = th.cat([x_t, x_0])
+        #else:
+        #    input_sample = x_t
+        #model_output = self.model(input_sample, t) if model_output==None else model_output
+        out_dict = self.p_mean_variance(None, x_t, t, model_output=model_output)
+        model_mean = out_dict['mean'].clone().detach() # No gradient for mean
+        model_logvar = out_dict['log_variance']
+        
+        # KL divergence
+        kl = 0.5 * (
+            -1. + model_logvar - true_logvar   +
+            th.exp(true_logvar - model_logvar) +
+            (true_mean - model_mean)**2 * th.exp(-model_logvar)
+        )
+        kl = kl.mean(dim=[1,2]) / np.log(2.)
+        
+        # Decoder NLL
+        decoder_nll = -1 * (
+            discretized_gaussian_log_likelihood(
+                x_start, 
+                means = model_mean, 
+                log_scales = 0.5*model_logvar,
+                edge = float(x_start.detach().mean()) + 3.5 * float(x_start.detach().std()),
+            ).mean(dim=[1,2]) / np.log(2.)
+        )
+
+        output = th.where(t==0, decoder_nll, kl)
+
+        return output
 
     def x0_helper(self, model_output, x, t):
         if self.model_mean_type == ModelMeanType.PREVIOUS_X:
@@ -1316,7 +1438,9 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
                             dimension equal to the length of timesteps.
     :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
     """
-    res = th.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
+    if not th.is_tensor(arr):
+        arr = th.from_numpy(arr)
+    res = arr.to(device=timesteps.device)[timesteps].float()
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]
     return res.expand(broadcast_shape)

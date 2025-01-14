@@ -34,7 +34,7 @@ class DownstreamObj:
         self.task = task
         
         # Create directory for saving results; only use if run from PretrainModel.py
-        self.log = config['log'] or config['save_weights']
+        self.log = config['save_weights']
         self.header = config['header']
         if svdir[-1] != '/': svdir += '/'
         if self.log and not os.path.exists(svdir):
@@ -530,6 +530,7 @@ class DenovoDiffusionObj(BaseDenovo):
         if diff_config is None:
             with open("./yaml/diffusion.yaml") as stream:
                 diff_config = yaml.safe_load(stream)
+        if diff_config['learn_sigma']: self.training_loss_keys.append("vlb_terms")
         diff_config['pad_tok_id'] = self.data.amod_dic['X']
         diff_config['resume_checkpoint'] = False
         diff_config['sequence_len'] = self.config['loader']['pep_length'][1] + 1 # b/c of eos token
@@ -547,6 +548,7 @@ class DenovoDiffusionObj(BaseDenovo):
             diff_obj=self.diff_obj,
             self_condition=config['denovo_diff']['self_condition'],
             clip_denoised=diff_config['clip_denoised'],
+            output_sigma=diff_config['learn_sigma'],
             **config['denovo_diff']['head_dict'],
         )
         print(f"<DSCOMMENT> Total Decoder parameters: {self.head.total_params():,}")
@@ -579,7 +581,9 @@ class DenovoDiffusionObj(BaseDenovo):
         target = deepcopy(batch['intseq'])
 
         # Schedule sampler
-        timesteps = th.empty(bs).uniform_(0, self.diff_obj.num_timesteps).type(th.int32).to(target.device)
+        timesteps = th.empty(bs).uniform_(
+            0, self.diff_obj.num_timesteps
+        ).floor().type(th.int32).to(target.device)
         
         enc_input = self.encinp(batch, return_mask=True)
 
@@ -654,6 +658,11 @@ class DenovoDiffusionObj(BaseDenovo):
             "Global grad norm encoder": encoder_norm,
             "Global grad norm decoder": decoder_norm,
         })
+        if 'vlb_terms' in losses:
+            wandb.log({
+                'VLB loss': losses['vlb_terms'],
+                'VLB run loss': rlm['vlb_terms'],
+            })
    
     def on_train_epoch_end(self):
         avg_losses = self.diff_obj.my_loss_history / (self.diff_obj.my_loss_count+1e-7)[...,None]
@@ -745,4 +754,6 @@ if __name__ == '__main__':
         out = D.evaluation(dset='val', max_batches=1e10)
         print("\n", out)
     else:
+        print("Test validation")
+        #out = D.evaluation(dset='val', max_batches=2)
         print(D.TrainEval()[-1])

@@ -1,6 +1,7 @@
 sequence_len: 21
-learn_sigma: False
+learn_sigma: True
 sigma_small: False
+sigma_weight: 0.001 # vlb_weight
 class_cond: False
 diffusion_steps: 100 # 2000
 noise_schedule: mine

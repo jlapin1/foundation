@@ -27,4 +27,4 @@ svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Diffusion"
+header: "Diffusion w/ vlb terms"

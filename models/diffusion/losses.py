@@ -51,7 +51,7 @@ def approx_standard_normal_cdf(x):
     return 0.5 * (1.0 + th.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * th.pow(x, 3))))
 
 
-def discretized_gaussian_log_likelihood(x, *, means, log_scales):
+def discretized_gaussian_log_likelihood(x, *, means, log_scales, edge=0.999):
     """
     Compute the log-likelihood of a Gaussian distribution discretizing to a
     given image.
@@ -73,9 +73,9 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
     log_one_minus_cdf_min = th.log((1.0 - cdf_min).clamp(min=1e-12))
     cdf_delta = cdf_plus - cdf_min
     log_probs = th.where(
-        x < -0.999,
+        x < -edge,
         log_cdf_plus,
-        th.where(x > 0.999, log_one_minus_cdf_min, th.log(cdf_delta.clamp(min=1e-12))),
+        th.where(x > edge, log_one_minus_cdf_min, th.log(cdf_delta.clamp(min=1e-12))),
     )
     assert log_probs.shape == x.shape
     return log_probs

@@ -62,6 +62,7 @@ class DenovoDiffusionDecoder(nn.Module):
         use_mass=False,
         self_condition=True,
         clip_denoised=False,
+        output_sigma=False,
         **kwargs
     ):
         super(DenovoDiffusionDecoder, self).__init__()
@@ -88,6 +89,12 @@ class DenovoDiffusionDecoder(nn.Module):
         self.use_charge = dec_config['use_charge']
         self.max_sl = dec_config['sequence_length'] + 1
         self.final_down_proj = nn.Linear(RU, input_output_units)
+        self.output_sigma = output_sigma
+        if output_sigma:
+            self.sigma_down_proj = nn.Sequential(
+                nn.Linear(RU, input_output_units),
+                nn.Sigmoid()
+            )
         self.self_condition = self_condition
         self.clip_denoised = clip_denoised
         self.embed_dim = embedding_dimension
@@ -125,6 +132,7 @@ class DenovoDiffusionDecoder(nn.Module):
         Transforming the x input to input for transformer block
         Note: identity in original paper if no self_condition
         """
+        # TODO include sigma guess if learned_sigma -> 3*input_output_units
         x_input_dim = 2*input_output_units if self_condition else input_output_units
         self.input_proj_dec = nn.Sequential(
             nn.Linear(x_input_dim, RU),
@@ -276,8 +284,11 @@ class DenovoDiffusionDecoder(nn.Module):
         )
         out = self.RemovePrecursorToken(out)
         out = self.final_down_proj(out)
-
-        return out
+        out_dict = {'mean': out}
+        if self.output_sigma:
+            logvar_fraction = self.sigma_down_proj(out)
+            out_dict['var'] = logvar_fraction
+        return out_dict
 
     def predict_sequence(self, embedding, batch, save_xcur=False):
         shape = (
