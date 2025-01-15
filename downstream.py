@@ -106,12 +106,22 @@ class DownstreamObj:
                 self.encoder = dc_encoder(sequence_length=ptconf['max_peaks'])
             else:
                 self.encoder = Encoder(**self.config['encoder_dict'], device=device)
-
+            
+            # DOWNSTREAM ONLY
             if self.config['dswts'] is not None:
                 weights_path = glob(os.path.join(self.svdir, "weights", "encoder*.wts"))
-                assert len(weights_path) == 1, "Multiple encoder weights found in weights directory"
-                print("<DSCOMMENT> Loading previous encoder weights")
-                self.encoder.load_state_dict(th.load(weights_path[0], map_location=device))
+                if len(weights_path) > 1:
+                    try:
+                        weights_path = [m for m in weights_path if 'high' in m][0]
+                        qualifier = '"high"'
+                    except:
+                        weights_path = [m for m in weights_path if 'last' in m][0]
+                        qualifier = '"last"'
+                else:
+                    weights_path = weights_path[0]
+                    qualifier = 'only'
+                print(f"<DSCOMMENT> Loading {qualifier} previous encoder weights")
+                self.encoder.load_state_dict(th.load(weights_path, map_location=device))
         
         self.encoder.to(device)
         self.opt_encoder = th.optim.Adam(
@@ -362,15 +372,21 @@ class BaseDenovo(DownstreamObj):
         lines = []
         highscore = 0
         for i in range(self.config['epochs']):
+            
+            # Train
             self.data.dataset['train'].set_epoch(i)
             self.train_epoch()
             self.on_train_epoch_end()
             
+            # Eval
             out = self.evaluation(dset=eval_dset, max_batches=100)
-            out['epoch'] = i+1
-            wandb.log(out)
-            out.pop('epoch')
-
+            
+            # Logging
+            if self.config['log_wandb']:
+                out['epoch'] = i+1
+                wandb.log(out)
+                out.pop('epoch')
+            
             specifier = " ".join(len(out)*['%s'])
             write_out = specifier%tuple([f"{m}={n:.3}" for m,n, in out.items()])
             line = "ValEpoch %d: %s"%(i, write_out)
@@ -381,11 +397,17 @@ class BaseDenovo(DownstreamObj):
             line += " (%.1f s)"%(time()-start_time)
             lines.append(line)
             print("\r"+line)
-
+            
+            # Saving the checkpoint
             if self.config['save_weights']:
-                self.save_head(self.svdir+'weights/head.wts')
-                if self.config['train_encoder']:
-                    self.save_encoder(self.svdir+'weights/encoder.wts')
+                self.save_head(self.svdir+'weights/head_last.wts')
+                self.save_encoder(self.svdir+'weights/encoder_last.wts')
+                if highscore == out['recall']:
+                    ext = f"epoch{i}_high_{highscore:.3f}"
+                    wtsdir = os.path.join(self.svdir, "weights")
+                    for file in glob(os.path.join(wtsdir, "*high*")): os.remove(file)
+                    self.save_head(os.path.join(wtsdir, f"head_{ext}.wts"))
+                    self.save_encoder(os.path.join(wtsdir, f"encoder_{ext}.wts"))
             
             self.eval_stats.append(list(out.values()))
             
@@ -552,10 +574,23 @@ class DenovoDiffusionObj(BaseDenovo):
             **config['denovo_diff']['head_dict'],
         )
         print(f"<DSCOMMENT> Total Decoder parameters: {self.head.total_params():,}")
-        possible_weights_path = os.path.join(self.svdir, "weights", "head.wts")
-        if config['dswts'] is not None and os.path.exists(possible_weights_path):
-            print("<DSCOMMENT> Loading previous decoder weights")
-            self.head.load_state_dict(th.load(possible_weights_path, map_location=device))
+        
+        # loading previous weights
+        if config['dswts'] is not None:
+            possible_weights_path = glob(os.path.join(self.svdir, "weights", "*head*wts*"))
+            if len(possible_weights_path) > 1:
+                try:
+                    weights_path = [m for m in possible_weights_path if 'high' in m][0]
+                    qualifier = '"high"'
+                except:
+                    weights_path = [m for m in glob(possible_weights_path) if 'last' in m][0]
+                    qualifier = '"last"'
+            else:
+                weights_path = possible_weights_path[0]
+                qualifier = 'only'
+            print(f"<DSCOMMENT> Loading {qualifier} previous decoder weights")
+            self.head.load_state_dict(th.load(weights_path, map_location=device))
+        
         self.head.to(device)
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
         self.eval_score = []
@@ -754,6 +789,7 @@ if __name__ == '__main__':
         out = D.evaluation(dset='val', max_batches=1e10)
         print("\n", out)
     else:
-        print("Test validation")
+        print("Test validation", end='')
         #out = D.evaluation(dset='val', max_batches=2)
+        print("\rTest validation passed")
         print(D.TrainEval()[-1])

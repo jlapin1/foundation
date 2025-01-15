@@ -93,7 +93,7 @@ class DenovoDiffusionDecoder(nn.Module):
         if output_sigma:
             self.sigma_down_proj = nn.Sequential(
                 nn.Linear(RU, input_output_units),
-                nn.Sigmoid()
+                nn.Identity()
             )
         self.self_condition = self_condition
         self.clip_denoised = clip_denoised
