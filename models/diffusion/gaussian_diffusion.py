@@ -1135,7 +1135,7 @@ class GaussianDiffusion:
         generate_by_mix_prob=0,
         generate_by_mix_part=0,
         save_xcur=False,
-        save_xstart=True,
+        save_xstart=False,
     ):
         loop_fn = self.p_sample_loop_progressive
         """sample = loop_fn(

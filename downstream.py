@@ -707,20 +707,22 @@ class DenovoDiffusionObj(BaseDenovo):
         self.diff_obj.my_loss_count = np.zeros((self.diff_obj.num_timesteps,))
     
     def on_eval_step_end(self, target, mask):
-        mses = np.zeros((target.shape[0], self.diff_obj.num_timesteps))
-        targ = self.head.get_embed(target)
-        for i, img in enumerate(self.diff_obj.my_xstart_save):
-            mse = (mask[...,None]*(img-targ)).square().sum(dim=[1,2]) / mask.sum(-1) / img.shape[-1]
-            mses[:, i] = mse.detach().cpu().numpy()
-        self.diff_obj.my_xstart_save = []
-        self.eval_score.append(mses)
+        pass
+        #mses = np.zeros((target.shape[0], self.diff_obj.num_timesteps))
+        #targ = self.head.get_embed(target)
+        #for i, img in enumerate(self.diff_obj.my_xstart_save):
+        #    mse = (mask[...,None]*(img-targ)).square().sum(dim=[1,2]) / mask.sum(-1) / img.shape[-1]
+        #    mses[:, i] = mse.detach().cpu().numpy()
+        #self.diff_obj.my_xstart_save = []
+        #self.eval_score.append(mses)
 
     def on_eval_end(self):
-        ganz_batch = np.concatenate(self.eval_score, axis=0)
-        ganz_batch_mean = ganz_batch.mean(0)
-        self.eval_score = []
-        save_path = os.path.join(self.svdir, "eval_mse_by_timestep.tab")
-        np.savetxt(save_path, ganz_batch_mean, delimiter='\n', fmt='%.6f')
+        pass
+        #ganz_batch = np.concatenate(self.eval_score, axis=0)
+        #ganz_batch_mean = ganz_batch.mean(0)
+        #self.eval_score = []
+        #save_path = os.path.join(self.svdir, "eval_mse_by_timestep.tab")
+        #np.savetxt(save_path, ganz_batch_mean, delimiter='\n', fmt='%.6f')
 
 if __name__ == '__main__':
 
