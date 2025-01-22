@@ -218,7 +218,7 @@ class DownstreamObj:
         
         bs = self.config['batch_size']
         running_loss = {key: deque(maxlen=50) for key in self.training_loss_keys}
-        running_time = [deque(maxlen=50) for _ in range(5)];running_time[-1].append(0)
+        #running_time = [deque(maxlen=50) for _ in range(5)];running_time[-1].append(0)
         
         # Progress bar
         train_steps = int(self.data.train_size // bs)
@@ -229,7 +229,7 @@ class DownstreamObj:
         for step, batch in enumerate(pbar):
             
             step_start = time()
-            running_time[0].append(step_start - step_end)
+            #running_time[0].append(step_start - step_end)
             
             if self.config['log_wandb']: wandb.log({"Learning rate": self.opt_encoder.param_groups[-1]['lr']})
 
@@ -249,11 +249,13 @@ class DownstreamObj:
             split2 = time()
             
             rlm = {key: np.mean(running_loss[key]) for key in running_loss.keys()}
-            rtm = np.mean(running_time[-1]) #[np.mean(m) if len(m)>0 else 0 for m in running_time]
+            #rtm = np.mean(running_time[-1]) #[np.mean(m) if len(m)>0 else 0 for m in running_time]
             split3 = time()
-            loss_printout = ", ".join(len(rlm)*['%s: %7f'])%tuple([m for n in rlm.items() for m in n])
-            #print("\rTraining step %d  Running Loss: %s (%.3f s)"%(step+1, loss_printout, rtm), end='')
-            pbar.set_description(f"Running Loss: {loss_printout} ({rtm:.3} s)")
+            if self.config['log_wandb']:
+                loss_printout = 'Loss: %7f'%rlm['loss']
+            else:
+                loss_printout = ", ".join(len(rlm)*['%s: %7f'])%tuple([m for n in rlm.items() for m in n])
+            pbar.set_description(f"Running Loss: {loss_printout}")
 
             if self.config['log_wandb']:
                 global_grad_norm_encoder = U.global_grad_norm(self.encoder)
@@ -266,7 +268,7 @@ class DownstreamObj:
                 self.savetxt(self.running_loss)
                 self.running_loss = []
 
-            running_time[4].append(time() - step_end)
+            #running_time[4].append(time() - step_end)
             step_end = time()
             
             #running_time[1].append(split1 - step_start)
@@ -792,6 +794,6 @@ if __name__ == '__main__':
         print("\n", out)
     else:
         print("Test validation", end='')
-        #out = D.evaluation(dset='val', max_batches=2)
+        out = D.evaluation(dset='val', max_batches=2)
         print("\rTest validation passed")
         print(D.TrainEval()[-1])

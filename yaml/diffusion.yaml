@@ -1,5 +1,5 @@
 sequence_len: 21
-learn_sigma: True
+learn_sigma: False
 sigma_small: False
 sigma_weight: 1.0 # vlb_weight
 class_cond: False

@@ -1,9 +1,9 @@
 eval_only: False
 batch_size: 100
 lr: 0.0001
-lr_warmup: False
+lr_warmup: True
 lr_warmup_start: 1.0e-6
-lr_warmup_end: 1.0e-4
+lr_warmup_end: 2.0e-4
 lr_warmup_steps: 20000
 pretrain_path: # if starting with a pretrained encoder
 dswts: # Load weights from previous downstream run (project path->timestamp)
@@ -11,8 +11,8 @@ epochs: 60
 steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
-log_wandb: False
-save_weights: False
+log_wandb: True
+save_weights: True
 
 # Loader options
 loader:
@@ -76,7 +76,7 @@ denovo_diff:
     preembed: True
     penultimate_units:
     pool: False
-    dropout: 0
+    dropout: 0.25
     alphabet: False
   self_condition: True
 
