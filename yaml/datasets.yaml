@@ -14,6 +14,7 @@ loader:
     - sequence # V1, MKB
     #- method # V2
     #- instrument # V2
+  val_steps: 100
   scratch:
     use: False
     path: /media/storage/scratch/pretrain/

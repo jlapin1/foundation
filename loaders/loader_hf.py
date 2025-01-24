@@ -98,6 +98,12 @@ class LoaderHF:
             self.amod_dic['X'] = len(self.amod_dic)
             self.amod_dic_rev = {b:a for a,b in self.amod_dic.items()}
 
+        # Dictionary masses
+        masses_path = os.path.join(dataset_path, "ns_masses.txt")
+        if os.path.exists(masses_path):
+            mass_frame = pd.read_csv(masses_path, delimiter=" ", header=None)
+            self.massdic = {m:n for m,n in zip(mass_frame[0], mass_frame[1])}
+
         # Species sizes
         ss_path = os.path.join(dataset_path, "species_sizes.txt")
         if os.path.exists(ss_path):
@@ -158,6 +164,12 @@ class LoaderHF:
                 (example['precursor_charge'] >= kwargs['charge'][0]) &
                 (example['precursor_charge'] <= kwargs['charge'][1])
             )
+
+        # Filter val set for dispersed examples
+        if 'val_steps' in kwargs.keys():
+            if kwargs['val_steps'] is not None:
+                every_n = self.val_size // batch_size // kwargs['val_steps'] - 1 # minus 1 to be safe (charge and length filter make dataset shorter)
+                dataset['val'] = dataset['val'].filter(lambda example, idx: idx % every_n == 0, with_indices=True)
         
         # Shuffle the dataset
         if 'buffer_size' in kwargs.keys():

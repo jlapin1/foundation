@@ -1,4 +1,4 @@
-eval_only: False
+eval_only: True
 batch_size: 100
 lr: 0.0001
 lr_warmup: True
@@ -11,8 +11,9 @@ epochs: 60
 steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
-log_wandb: True
-save_weights: True
+log_wandb: False
+save_weights: False
+high_score: aa_recall
 
 # Loader options
 loader:
@@ -24,6 +25,7 @@ loader:
   buffer_size: 10000
   batch_size: 100
   num_workers: 8
+  val_steps: 100
   remove_columns:
     - 'evidence_index'
     - 'scan_number'
@@ -76,7 +78,7 @@ denovo_diff:
     preembed: True
     penultimate_units:
     pool: False
-    dropout: 0.25
+    dropout: 0
     alphabet: False
   self_condition: True
 

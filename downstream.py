@@ -21,6 +21,7 @@ import utils as U
 from copy import deepcopy
 import wandb
 from glob import glob
+import metrics as met
 nn = th.nn
 F = nn.functional
 choice = np.random.choice
@@ -304,18 +305,64 @@ class BaseDenovo(DownstreamObj):
         self.ar = ar
  
         # Dataloader
+        if 'val_steps' in self.config['loader'].keys(): # backwards compatibility
+            val_steps = self.config['loader']['val_steps']
+            self.val_steps = 1 if val_steps == None else val_steps # backwards compatiblity
+        else:
+            self.val_steps = 100
         self.data = LoaderHF(**self.config['loader'])
         self.predcats = np.max(list(self.data.amod_dic.values())) + 1
 
         self.eval_stats = []
+
+    def replace_with_eos_token(self, intseq, lengths):
+        if len(intseq.shape) == 1:
+            intseq = intseq[None]
+        bs, sl = intseq.shape
+        eos_inds = [th.arange(bs, device=intseq.device), lengths]
+        intseq[eos_inds] = self.head.EOS
+
+        return intseq
+
+    def append_null_token(self, intseq):
+        if len(intseq.shape) == 1:
+            intseq = intseq[None]
+        bs, sl = intseq.shape
+        nulls = th.fill(th.empty(bs, dtype=th.int64), self.head.NT).to(intseq.device)
+        out = th.cat([intseq, nulls[:,None]], dim=-1)
+
+        return out
+
+    def fill_null_after_first_eos_token(self, intseq):
+        if len(intseq.shape) == 1:
+            intseq = intseq[None]
+        bs, sl = intseq.shape
+        length = (intseq == self.head.EOS).int().argmax(1)
+        mask = length > 0
+        index_array = th.arange(sl)[None].repeat([sum(mask), 1]).to(intseq.device)
+        boolean_array = index_array > length[mask, None]
+        intseq[mask][boolean_array] = self.head.NT
+
+        return intseq
+
+    def to_list_of_strings(self, intseq):
+        if len(intseq.shape) == 1:
+            intseq = intseq[None]
+        return [
+            [
+                self.head.rev_outdict[int(n)] 
+                for n in m if n not in [self.head.NT, self.head.EOS]
+            ] 
+            for m in intseq
+        ]
 
     def evaluation(self, dset='val', max_batches=1e10):
         
         func = self.head.predict_sequence if self.ar else self.call
         
         # losses
-        out = {'ce': 0, 'recall': 0, 'precision': 0, 'peptide': 0, 'auprc': 0,}
-        tots = {}
+        out = {'ce': 0}
+        tots = {'sum':{}, 'total': {}}
 
         # Progress bar
         val_steps = min(
@@ -333,38 +380,67 @@ class BaseDenovo(DownstreamObj):
 
             #print("\rEvaluation step %d"%(i+1), end='')
             batch = U.Dict2dev(batch, device)
-            # Fork in the code for the 2 types of denovo models I created
             with th.no_grad():
-                enc_input, seqint, target, loss_mask = self.inptarg(
-                    batch, #full_seqint=True,
-                )
+                enc_input, seqint, target, loss_mask = self.inptarg(batch)
                 embedding = self.encoder(**enc_input)
                 prediction, probs = self.head.predict_sequence(embedding, batch)
-                prediction = prediction[..., :target.shape[1]]
-                probs = probs[:, :target.shape[1]]
-                pred = probs.transpose(-1,-2)
-
+            # Do some resizing/reshaping
+            prediction = prediction[..., :target.shape[1]] # loaded shapes can change based on batch
+            probs = probs[:, :target.shape[1]]
+            pred = probs.transpose(-1,-2)
+            
+            # Cross entropy
             out['ce'] += (
                 F.cross_entropy(pred, target, reduction='none')[loss_mask].sum()
             )
-                        
-            vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.NT, typ='aa')
-            out['auprc'] += auprc
+            
+            # Deepnovo metrics
+            prediction = self.fill_null_after_first_eos_token(prediction)
+            pred_strings = self.to_list_of_strings(prediction)
+            targ_strings = self.to_list_of_strings(target)
+            aa_matches_batch, n_aa1, n_aa2 = met.aa_match_batch(pred_strings, targ_strings, self.data.massdic)
+            dn_metrics = {
+                'sum': {
+                    'aa_recall': sum([sum(m[0]) for m in aa_matches_batch]),
+                    'aa_precision': sum([sum(m[0]) for m in aa_matches_batch]),
+                    'peptide': sum([m[-1] for m in aa_matches_batch]),
+                },
+                'total': {
+                    'aa_recall': n_aa2,
+                    'aa_precision': n_aa1,
+                    'peptide': len(pred_strings),
+                },
+            }
+
+            # Naive metrics
             stats = U.AccRecPrec(target.cpu(), prediction.cpu(), self.head.NT)
+            #vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.NT, typ='aa')
+            #out['auprc'] += auprc           
+
+            # Add to totals
+            for metric in dn_metrics['sum'].keys():
+                if metric not in tots['sum'].keys():
+                    tots['sum'][metric] = 0
+                    tots['total'][metric] = 0
+                tots['sum'][metric] += dn_metrics['sum'][metric]
+                tots['total'][metric] += dn_metrics['total'][metric]
+
             for metric in stats.keys():
-                if metric not in tots.keys():
-                    tots[metric] = 0
-                tots[metric] += stats[metric]['sum'] / stats[metric]['total']
+                metric_ = metric+'_naive'
+                if metric_ not in tots['sum'].keys():
+                    tots['sum'][metric_] = 0
+                    tots['total'][metric_] = 0
+                tots['sum'][metric_] += stats[metric]['sum']
+                tots['total'][metric_] += stats[metric]['total']
 
             self.on_eval_step_end(target, loss_mask)
         
         steps = i+1
         totsz = self.config['loader']['batch_size']*steps
         out['ce'] = float((out['ce'] / (totsz * self.config['sl'])).cpu().detach().numpy())
-        out['auprc'] = out['auprc'] / steps
-        for metric in tots.keys():
-            out[metric] = float(tots[metric] /  steps)
-        
+        for metric in tots['sum'].keys():
+            out[metric] = tots['sum'][metric] /  tots['total'][metric]
+
         self.on_eval_end()
 
         return out
@@ -381,7 +457,7 @@ class BaseDenovo(DownstreamObj):
             self.on_train_epoch_end()
             
             # Eval
-            out = self.evaluation(dset=eval_dset, max_batches=100)
+            out = self.evaluation(dset=eval_dset, max_batches=self.val_steps)
             
             # Logging
             if self.config['log_wandb']:
@@ -393,9 +469,9 @@ class BaseDenovo(DownstreamObj):
             write_out = specifier%tuple([f"{m}={n:.3}" for m,n, in out.items()])
             line = "ValEpoch %d: %s"%(i, write_out)
             
-            if out['recall']>highscore:
+            if out[self.config['high_score']] > highscore:
                 highline = line
-                highscore = out['recall']
+                highscore = out[self.config['high_score']]
             line += " (%.1f s)"%(time()-start_time)
             lines.append(line)
             print("\r"+line)
@@ -404,7 +480,7 @@ class BaseDenovo(DownstreamObj):
             if self.config['save_weights']:
                 self.save_head(self.svdir+'weights/head_last.wts')
                 self.save_encoder(self.svdir+'weights/encoder_last.wts')
-                if highscore == out['recall']:
+                if highscore == out[self.config['high_score']]:
                     ext = f"epoch{i}_high_{highscore:.3f}"
                     wtsdir = os.path.join(self.svdir, "weights")
                     for file in glob(os.path.join(wtsdir, "*high*")): os.remove(file)
@@ -447,26 +523,25 @@ class DenovoArDSObj(BaseDenovo):
         )
         self.predict_sequence = self.head.predict_sequence
         print(f"<DSCOMMENT> Total Decoder parameters: {self.head.decoder.total_params():,}")
-        if os.path.exists(os.path.join(self.svdir, 'weights/head.wts')):
-            print("<DSCOMMENT> Loading previous decoder weights")
-            self.head.load_weights(os.path.join(self.svdir, 'weights/head.wts'), device)
+
+        # loading previous weights
+        if config['dswts'] is not None:
+            possible_weights_path = glob(os.path.join(self.svdir, "weights", "*head*wts*"))
+            if len(possible_weights_path) > 1:
+                try:
+                    weights_path = [m for m in possible_weights_path if 'high' in m][0]
+                    qualifier = '"high"'
+                except:
+                    weights_path = [m for m in glob(possible_weights_path) if 'last' in m][0]
+                    qualifier = '"last"'
+            else:
+                weights_path = possible_weights_path[0]
+                qualifier = 'only'
+            print(f"<DSCOMMENT> Loading {qualifier} previous decoder weights")
+            self.head.decoder.load_state_dict(th.load(weights_path, map_location=device))
         self.head.decoder.to(device)
         
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
-
-    def append_null_token(self, intseq):
-        bs, sl = intseq.shape
-        nulls = th.fill(th.empty(bs, dtype=th.int64), self.head.NT).to(intseq.device)
-        out = th.cat([intseq, nulls[:,None]], dim=-1)
-
-        return out
-
-    def replace_with_eos_token(self, intseq, lengths):
-        bs, sl = intseq.shape
-        eos_inds = [th.arange(bs, device=intseq.device), lengths]
-        intseq[eos_inds] = self.head.EOS
-
-        return intseq
     
     def inptarg(self, batch):
         
@@ -597,20 +672,6 @@ class DenovoDiffusionObj(BaseDenovo):
         self.opt_head = th.optim.Adam(self.head.parameters(), self.starting_lr)
         self.eval_score = []
 
-    def append_null_token(self, intseq):
-        bs, sl = intseq.shape
-        nulls = th.fill(th.empty(bs, dtype=th.int64), self.head.NT).to(intseq.device)
-        out = th.cat([intseq, nulls[:,None]], dim=-1)
-
-        return out
-
-    def replace_with_eos_token(self, intseq, lengths):
-        bs, sl = intseq.shape
-        eos_inds = [th.arange(bs, device=intseq.device), lengths]
-        intseq[eos_inds] = self.head.EOS
-
-        return intseq
-    
     def inptarg(self, batch):
         
         bs, sl = batch['intseq'].shape
@@ -795,5 +856,6 @@ if __name__ == '__main__':
     else:
         print("Test validation", end='')
         out = D.evaluation(dset='val', max_batches=2)
+        assert D.config['high_score'] in out.keys()
         print("\rTest validation passed")
         print(D.TrainEval()[-1])
