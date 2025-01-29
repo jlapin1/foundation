@@ -47,7 +47,7 @@ class Decoder(nn.Module):
     def __init__(self,
                  running_units=512,
                  kv_indim=256,
-                 sequence_length=30, # maximum number of amino acids
+                 max_sequence_length=30, # maximum number of amino acids
                  num_inp_tokens=21,
                  depth=9,
                  d=64,
@@ -71,7 +71,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.run_units = running_units
         self.kv_indim = kv_indim
-        self.sl = sequence_length
+        self.sl = max_sequence_length
         self.num_inp_tokens = num_inp_tokens
         # Denovo random: No need for start or hidden tokens
         # Denovo teacher forcing: remove Null, remove <SOS>, add <EOS>
@@ -163,7 +163,7 @@ class Decoder(nn.Module):
         
         # Positional embedding
         pos = mp.FourierFeatures(
-            th.arange(100, dtype=th.float32), 1, 1000, self.run_units,
+            th.arange(self.sl, dtype=th.float32), 1, 1000, self.run_units,
         )
         self.pos = nn.Parameter(pos, requires_grad=False)
 
@@ -307,10 +307,11 @@ class DenovoDecoder:
         self.scale = Scale(self.outdict)
 
         self.dec_config = dec_config
+        dec_config['max_sequence_length'] = dec_config['max_sequence_length'] + 1 # padded to accomodate <EOS> token on longest desired sequence
         self.decoder = Decoder(**dec_config)
         self.use_mass = dec_config['use_mass']
         self.use_charge = dec_config['use_charge']
-        self.max_sl = dec_config['sequence_length'] + 1
+        self.max_sl = dec_config['max_sequence_length']
 
         self.state_dict = lambda: self.decoder.state_dict()
         self.encoder = encoder

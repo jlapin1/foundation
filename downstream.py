@@ -22,6 +22,7 @@ from copy import deepcopy
 import wandb
 from glob import glob
 import metrics as met
+import pandas as pd
 nn = th.nn
 F = nn.functional
 choice = np.random.choice
@@ -36,7 +37,7 @@ class DownstreamObj:
         
         # Create directory for saving results; only use if run from PretrainModel.py
         self.log = config['save_weights']
-        self.header = config['header']
+        self.header = "HEADER"#config['header']
         if svdir[-1] != '/': svdir += '/'
         if self.log and not os.path.exists(svdir):
             os.makedirs(svdir)
@@ -110,7 +111,9 @@ class DownstreamObj:
             
             # DOWNSTREAM ONLY
             if self.config['dswts'] is not None:
-                weights_path = glob(os.path.join(self.svdir, "weights", "encoder*.wts"))
+                regex = '*encoder*last*wts*' if self.config['load_last'] else "*encoder*wts*"
+                print(f"<DSCOMMENT> Searching for decoder weights with regular expression {regex}")
+                weights_path = glob(os.path.join(self.svdir, "weights", regex))
                 if len(weights_path) > 1:
                     try:
                         weights_path = [m for m in weights_path if 'high' in m][0]
@@ -120,7 +123,7 @@ class DownstreamObj:
                         qualifier = '"last"'
                 else:
                     weights_path = weights_path[0]
-                    qualifier = 'only'
+                    qualifier = 'last' if self.config['load_last'] else 'only'
                 print(f"<DSCOMMENT> Loading {qualifier} previous encoder weights")
                 self.encoder.load_state_dict(th.load(weights_path, map_location=device))
         
@@ -218,7 +221,7 @@ class DownstreamObj:
     def train_epoch(self, svfreq=10000):
         
         bs = self.config['batch_size']
-        running_loss = {key: deque(maxlen=50) for key in self.training_loss_keys}
+        running_loss = {key: deque(maxlen=20) for key in self.training_loss_keys}
         #running_time = [deque(maxlen=50) for _ in range(5)];running_time[-1].append(0)
         
         # Progress bar
@@ -337,7 +340,7 @@ class BaseDenovo(DownstreamObj):
         if len(intseq.shape) == 1:
             intseq = intseq[None]
         bs, sl = intseq.shape
-        length = (intseq == self.head.EOS).int().argmax(1)
+        length = ((intseq == self.head.EOS)|(intseq == self.head.NT)).int().argmax(1)
         mask = length > 0
         index_array = th.arange(sl)[None].repeat([sum(mask), 1]).to(intseq.device)
         boolean_array = index_array > length[mask, None]
@@ -356,10 +359,25 @@ class BaseDenovo(DownstreamObj):
             for m in intseq
         ]
 
-    def evaluation(self, dset='val', max_batches=1e10):
+    def evaluation(self, dset='val', max_batches=1e10, save_df=False):
         
         func = self.head.predict_sequence if self.ar else self.call
         
+        # Dataframe
+        if save_df:
+            dataframe = {
+                'targ_intseq': [],
+                'charge': [],
+                'mass': [],
+                'peptide_length': [],
+                'pred_intseq': [],
+                'probs': [],
+                'targ_aaseq': [],
+                'pred_aaseq': [],
+                'correct_aa': [],
+                'correct_peptide': [],
+            }
+
         # losses
         out = {'ce': 0}
         tots = {'sum':{}, 'total': {}}
@@ -384,9 +402,11 @@ class BaseDenovo(DownstreamObj):
                 enc_input, seqint, target, loss_mask = self.inptarg(batch)
                 embedding = self.encoder(**enc_input)
                 prediction, probs = self.head.predict_sequence(embedding, batch)
+            
             # Do some resizing/reshaping
             prediction = prediction[..., :target.shape[1]] # loaded shapes can change based on batch
             probs = probs[:, :target.shape[1]]
+            predicted_probs = probs.softmax(-1).gather(-1, prediction[...,None].type(th.int64)).squeeze()
             pred = probs.transpose(-1,-2)
             
             # Cross entropy
@@ -412,11 +432,23 @@ class BaseDenovo(DownstreamObj):
                 },
             }
 
+            if save_df:
+                dataframe['charge'].extend(batch['charge'].cpu().numpy().tolist())
+                dataframe['mass'].extend(batch['mass'].cpu().numpy().tolist())
+                dataframe['peptide_length'].extend(batch['peplen'].cpu().numpy().tolist())
+                dataframe['targ_intseq'].extend(batch['intseq'].cpu().numpy().tolist())
+                dataframe['pred_intseq'].extend(prediction.cpu().numpy().tolist())
+                dataframe['probs'].extend(predicted_probs.cpu().numpy().tolist())
+                dataframe['targ_aaseq'].extend(targ_strings)
+                dataframe['pred_aaseq'].extend(pred_strings)
+                dataframe['correct_aa'].extend([result[0] for result in aa_matches_batch])
+                dataframe['correct_peptide'].extend([result[1] for result in aa_matches_batch])
+            
             # Naive metrics
             stats = U.AccRecPrec(target.cpu(), prediction.cpu(), self.head.NT)
             #vecs, auprc = U.RocCurve(target, prediction, probs, null_value=self.head.NT, typ='aa')
-            #out['auprc'] += auprc           
-
+            #out['auprc'] += auprc
+            
             # Add to totals
             for metric in dn_metrics['sum'].keys():
                 if metric not in tots['sum'].keys():
@@ -442,8 +474,11 @@ class BaseDenovo(DownstreamObj):
             out[metric] = tots['sum'][metric] /  tots['total'][metric]
 
         self.on_eval_end()
-
-        return out
+        
+        if save_df:
+            return out, pd.DataFrame(dataframe)
+        else:
+            return out
 
     def TrainEval(self, eval_dset='val'):
         start_time = time()
@@ -504,6 +539,7 @@ class BaseDenovo(DownstreamObj):
     def on_eval_end(self, *args, **kwargs):
         pass
 
+
 class DenovoArDSObj(BaseDenovo):
     def __init__(self, config, base_model=None, svdir='./dswts/'):
         task = 'denovo_ar'
@@ -526,7 +562,9 @@ class DenovoArDSObj(BaseDenovo):
 
         # loading previous weights
         if config['dswts'] is not None:
-            possible_weights_path = glob(os.path.join(self.svdir, "weights", "*head*wts*"))
+            regex = '*head*last*wts*' if config['load_last'] else "*head*wts*"
+            print(f"<DSCOMMENT> Searching for decoder weights with regular expression {regex}")
+            possible_weights_path = glob(os.path.join(self.svdir, "weights", regex))
             if len(possible_weights_path) > 1:
                 try:
                     weights_path = [m for m in possible_weights_path if 'high' in m][0]
@@ -654,7 +692,9 @@ class DenovoDiffusionObj(BaseDenovo):
         
         # loading previous weights
         if config['dswts'] is not None:
-            possible_weights_path = glob(os.path.join(self.svdir, "weights", "*head*wts*"))
+            regex = '*head*last*wts*' if config['load_last'] else "*head*wts*"
+            print(f"<DSCOMMENT> Searching for decoder weights with regular expression {regex}")
+            possible_weights_path = glob(os.path.join(self.svdir, "weights", regex))
             if len(possible_weights_path) > 1:
                 try:
                     weights_path = [m for m in possible_weights_path if 'high' in m][0]
@@ -664,7 +704,7 @@ class DenovoDiffusionObj(BaseDenovo):
                     qualifier = '"last"'
             else:
                 weights_path = possible_weights_path[0]
-                qualifier = 'only'
+                qualifier = 'last' if config['load_last'] else 'only'
             print(f"<DSCOMMENT> Loading {qualifier} previous decoder weights")
             self.head.load_state_dict(th.load(weights_path, map_location=device))
         
@@ -802,7 +842,11 @@ if __name__ == '__main__':
     bs = dsconfig['batch_size']
     msg = dsconfig['log']
     swt = dsconfig['save_weights']
-    
+    # Overrides over a loaded previous experiment
+    eval_only = dsconfig['eval_only']
+    dswts = dsconfig['dswts']
+    load_last = dsconfig['load_last']
+
     ########################################################
     # Create experiment directory in save/downstream_only/ #
     ########################################################
@@ -810,6 +854,10 @@ if __name__ == '__main__':
     # Continuing previous downstream run
     if dsconfig['dswts'] is not None:
         svdir = os.path.join(dsconfig['dswts'])
+        with open(os.path.join(dsconfig['dswts'], "yaml", "downstream.yaml")) as stream:
+            dsconfig = yaml.safe_load(stream)
+        dsconfig['dswts'] = dswts
+        dsconfig['load_last'] = load_last
     # Starting from pretrained encoder -> must fix to combine with create new exp
     elif dsconfig['pretrain_path'] is not None:
         svdir = os.path.join(dsconfig['pretrain_path'], 'weights')
@@ -834,8 +882,7 @@ if __name__ == '__main__':
         D = DenovoArDSObj(dsconfig, svdir=svdir)
 
     # WandB
-    #dsconfig['log_wandb'] = config['log_wandb']
-    if dsconfig['log_wandb']:
+    if dsconfig['log_wandb'] and (eval_only == False):
         wandb.init(
             project=config['project'],
             entity='joellapin',
@@ -850,8 +897,9 @@ if __name__ == '__main__':
 		)   
 
     # Run training and/or evaluation
-    if dsconfig['eval_only']:
-        out = D.evaluation(dset='val', max_batches=1e10)
+    if eval_only:
+        out, df = D.evaluation(dset='test', max_batches=1e10, save_df=True)
+        df.to_parquet(os.path.join(svdir, "output.parquet"))
         print("\n", out)
     else:
         print("Test validation", end='')

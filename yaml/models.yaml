@@ -15,7 +15,7 @@ encoder_dict:
   prec_type: inject_pre
   use_charge: False
   use_mass: False
-  bias: 'pairwise' # 'pairwise' | 'regular' | False | None
+  bias: # 'pairwise' | 'regular' | False | None
   dropout: 0.25
   recycling_its: 1
   pw_mz_units: 512
