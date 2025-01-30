@@ -1,4 +1,4 @@
-eval_only: True
+eval_only: False
 batch_size: 100
 lr: 0.0001
 lr_warmup: True
@@ -6,14 +6,14 @@ lr_warmup_start: 1.0e-6
 lr_warmup_end: 1.5e-4
 lr_warmup_steps: 20000
 pretrain_path: # if starting with a pretrained encoder
-dswts: "save/downstream_only/2025-01-26_21-57-00" # Load weights from previous downstream run (project path->timestamp)
+dswts: # Load weights from previous downstream run (project path->timestamp)
 load_last: False
-epochs: 20
+epochs: 60
 steps_per_epoch: 10000
 train_encoder: True
 encoder_start: 0
-log_wandb: True
-save_weights: True
+log_wandb: False
+save_weights: False
 high_score: aa_recall
 
 # Loader options

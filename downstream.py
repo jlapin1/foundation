@@ -846,6 +846,7 @@ if __name__ == '__main__':
     eval_only = dsconfig['eval_only']
     dswts = dsconfig['dswts']
     load_last = dsconfig['load_last']
+    epochs = dsconfig['epochs']
 
     ########################################################
     # Create experiment directory in save/downstream_only/ #
@@ -856,8 +857,10 @@ if __name__ == '__main__':
         svdir = os.path.join(dsconfig['dswts'])
         with open(os.path.join(dsconfig['dswts'], "yaml", "downstream.yaml")) as stream:
             dsconfig = yaml.safe_load(stream)
+        # Return values chosen in current yaml files
         dsconfig['dswts'] = dswts
         dsconfig['load_last'] = load_last
+        dsconfig['epochs'] = epochs
     # Starting from pretrained encoder -> must fix to combine with create new exp
     elif dsconfig['pretrain_path'] is not None:
         svdir = os.path.join(dsconfig['pretrain_path'], 'weights')
