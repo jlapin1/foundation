@@ -1,6 +1,6 @@
 seed:
 max_peaks: 100
-epochs: 1
+epochs: 2
 steps_per_report: 10000
 max_steps: 1e10
 batch_size: 100
@@ -21,10 +21,10 @@ downstream:
 log_wandb: False
 project: diffusion
 load: False
-loadpath: save/2024-03-23_18-49-24.152971/weights/
-log: False
-svwts: False
+loadpath: save/2025-06-11_08-01-42/weights/
+log: True
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
-header: "Diffusion w/ AR model hyperparameters (lr and dropout)"
+header: "PretrainV2-50M"

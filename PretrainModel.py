@@ -87,7 +87,7 @@ L = LoaderHF(**dc['loader'])
 ################################################################################
 
 from models.encoder import Encoder
-from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
+#from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import Header
 from utils import *
 
@@ -146,7 +146,7 @@ loss_spec = " ".join(['%s: %%7.5f'%task_name for task_name in T.keys()])
 #                           Downstream evaluation                              #
 ################################################################################
 
-if not config['debug']:
+if (config['downstream'] is not None) and (not config['debug']):
     import downstream as ds
 
     # Downstream object

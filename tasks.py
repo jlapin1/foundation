@@ -418,9 +418,9 @@ class ResidualRegression(Task):
 
         # TARGET: Classify all inds
         self.target = batch[self.typ] - mzab
-        assert self.target.shape[1] == 100, (
-            batch[self.typ], mzab
-        )
+        #assert self.target.shape[1] == 100, (
+        #    batch[self.typ], mzab
+        #)
         
         return inp
 
