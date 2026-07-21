@@ -50,7 +50,7 @@ def map_fn(
     return example
 
 def collate_fn(batch_list):
-    #species = [m['name'] for m in batch_list]
+    name = np.array([m['name'] for m in batch_list])
     speclen = np.stack([m['spectrum_length'] for m in batch_list])
     mz      = np.stack([m['mz'][:speclen.max()] for m in batch_list])
     ab      = np.stack([m['ab'][:speclen.max()] for m in batch_list])
@@ -61,7 +61,7 @@ def collate_fn(batch_list):
         intseq = th.stack([m['tokenized_sequence'][:peplen.max()] for m in batch_list])
 
     out = {
-        #'name': species,
+        'name': name,
         'mz': th.tensor(mz, dtype=th.float32),
         'ab': th.tensor(ab, dtype=th.float32),
         'charge': th.tensor(charge, dtype=th.int32),

@@ -6,7 +6,7 @@ max_steps: 1e10
 batch_size: 100
 lr: 1e-4
 tasks:
-  #- trinary_mz
+  - trinary_mz
   #- trinary_ab
   #- hidden_mz
   #- hidden_ab
@@ -14,16 +14,16 @@ tasks:
   #- hidden_charge
   #- hidden_mass
   #- maldi
-  - resid_regr
+  #- resid_regr
 downstream:
   #- denovo_ar
 
 log_wandb: False
 project: diffusion
 load: False
-loadpath: save/2025-06-11_08-01-42/weights/
-log: True
-svwts: True
+loadpath:
+log: False
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
