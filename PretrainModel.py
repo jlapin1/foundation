@@ -11,6 +11,7 @@ import torch as th
 import yaml
 import utils as U
 import re
+import wandb
 Adam = th.optim.Adam
 # slurm doesn't always manage gpus well -> cublas error
 # you may need to set cuda_visible_devices={#} before python in shellscript.sh
@@ -155,6 +156,65 @@ if (config['downstream'] is not None) and (not config['debug']):
     }
 
 ################################################################################
+#                    denovo_base evaluation (AR sequencing)                    #
+################################################################################
+
+def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
+    """
+    Snapshot `encoder`'s current weights into denovo_base's DenovoArObj
+    (autoregressive de novo sequencing model) and train/evaluate it for 1
+    epoch, as a sanity check on the encoder currently being pretrained.
+
+    denovo_base (./denovo_base/) is a separate, standalone repo that expects
+    to own the bare `models`/`utils` module names when it imports itself.
+    Since this script already has its own `models`/`utils` loaded under those
+    same names, they're stashed out of sys.modules for the duration of the
+    import so denovo_base's copies don't clobber them.
+    """
+    import sys
+    import importlib
+
+    root = os.path.dirname(os.path.abspath(__file__))
+    denovo_base_dir = os.path.join(root, "denovo_base")
+    collide = lambda name: name == 'models' or name.startswith('models.') or name == 'utils'
+
+    stashed = {name: sys.modules.pop(name) for name in list(sys.modules) if collide(name)}
+    sys.path.insert(0, denovo_base_dir)
+    try:
+        model_runners = importlib.import_module("denovo_base.models.model_runners")
+
+        with open(os.path.join(denovo_base_dir, "yaml", "config.yaml")) as stream:
+            dnconfig = yaml.safe_load(stream)
+
+        # Match the encoder currently being pretrained so its state_dict below
+        # loads cleanly (same architecture/dimensions)
+        dnconfig['encoder_dict'] = {**mconf['encoder_dict'], 'empty': False}
+        dnconfig['top_peaks'] = config['max_peaks']
+        dnconfig['batch_size'] = config['batch_size']
+        dnconfig['epochs'] = 1
+        dnconfig['save_weights'] = False
+        dnconfig['log_wandb'] = False
+        dnconfig['prev_wts'] = None
+        dnconfig['pretrained_encoder_path'] = None
+        dnconfig['freeze_encoder'] = freeze_encoder
+
+        DS = model_runners.DenovoArObj(dnconfig, svdir=svdir, rddir=None, encoder_model=encoder)
+        # Insert a snapshot of the current encoder's weights (a copy, so this
+        # evaluation can't perturb the encoder actually being pretrained)
+        DS.model.encoder.load_state_dict(encoder.state_dict())
+
+        out = DS.TrainEval()
+    finally:
+        sys.path.remove(denovo_base_dir)
+        for name in [n for n in sys.modules if collide(n)]:
+            del sys.modules[name]
+        sys.modules.update(stashed)
+
+    #print("<PMCOMMENT> denovo_base 1-epoch evaluation:")
+    #print("\n".join(lines))
+    return out[-1]
+
+################################################################################
 #                                  Training                                    #
 ################################################################################
 
@@ -260,6 +320,17 @@ def train(epochs=1, runlen=50, svfreq=3600):
         parmshapes = parms_enc + parms_head
         parmgrads = []
         all_loss = []
+
+    if config['log_wandb']:
+        wandb.init(
+            project=config['wandb_project'],
+            entity=config['wandb_entity'],
+            config={
+                'config': {'main': config, 'datasets': dc, 'models': mconf, 'tasks': tc, 'downstream': dsconfig},
+                'save_directory': timestamp,
+                'encoder_parameters': encoder.total_params(),
+            },
+        )
     
     # Train
     running_time = deque(maxlen=runlen) # Full time
@@ -268,6 +339,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
     svtime = time()
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
     
+    #_ = denovo_base_eval(encoder)
+
     eval_loss = 999999999
     loss_list = []
     max_steps_tick=False
@@ -333,7 +406,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
 
             # Run evaluation and save training_loss
             if (step+1) % config['steps_per_report'] == 0:
-                eval_loss = evaluation(list(T.keys())[0])
+                eval_out = denovo_base_eval(encoder)[['aa_recall', 'peptide']]
+                #eval_loss = evaluation(list(T.keys())[0])
                 if msg:
                     Line = "Validation loss at step %d: %.6f\n"%(step+1, eval_loss)
                     U.message_board(Line, "%s/epochout.txt"%svdir)
