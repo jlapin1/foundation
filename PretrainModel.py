@@ -12,6 +12,7 @@ import yaml
 import utils as U
 import re
 import wandb
+from tqdm import tqdm
 Adam = th.optim.Adam
 # slurm doesn't always manage gpus well -> cublas error
 # you may need to set cuda_visible_devices={#} before python in shellscript.sh
@@ -91,6 +92,12 @@ from models.encoder import Encoder
 #from models.depthcharge.SpectrumTransformerEncoder import dc_encoder
 from models.heads import Header
 from utils import *
+
+def turn_grad_on(encoder_model, grad_vector=None):
+    if grad_vector == None:
+        grad_vector = [True for m in encoder_model.parameters()]
+    for parm, needs_grad in zip(encoder_model.parameters(), grad_vector):
+        parm.requires_grad = needs_grad
 
 # Encoder model
 if mconf['encoder_name'] == 'depthcharge':
@@ -173,7 +180,9 @@ def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
     """
     import sys
     import importlib
-
+    import gc
+    
+    needs_grad = [m.requires_grad for m in encoder.parameters()]
     root = os.path.dirname(os.path.abspath(__file__))
     denovo_base_dir = os.path.join(root, "denovo_base")
     collide = lambda name: name == 'models' or name.startswith('models.') or name == 'utils'
@@ -209,6 +218,10 @@ def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
         for name in [n for n in sys.modules if collide(n)]:
             del sys.modules[name]
         sys.modules.update(stashed)
+        del DS.data.dataloader['train']
+        del DS.data.dataloader['test']
+        gc.collect()
+        turn_grad_on(encoder, grad_vector=needs_grad)
 
     #print("<PMCOMMENT> denovo_base 1-epoch evaluation:")
     #print("\n".join(lines))
@@ -257,6 +270,7 @@ def train_step(batch, task, enc_opt, head_opt):
 
     return loss
 
+"""
 def evaluation(task):
     encoder.eval()
     header.eval()
@@ -281,6 +295,7 @@ def evaluation(task):
     print("\rValidation loss at step %d: %.6f%50s"%(encoder.global_step, mean_loss, ""))
 
     return mean_loss
+"""
 
 def save_train_loss(filepath, loss_list):
     if os.path.exists(filepath):
@@ -295,8 +310,8 @@ def train(epochs=1, runlen=50, svfreq=3600):
     swt = config['svwts'] & (config['debug']!=True)
     
     # Create experiment directory in save/
+    timestamp = U.timestamp()
     if (msg or swt):
-        timestamp = U.timestamp()
         svdir = 'save/' + timestamp
         U.create_experiment(svdir, svwts=config['svwts'])
         if config['svwts']: 
@@ -304,13 +319,6 @@ def train(epochs=1, runlen=50, svfreq=3600):
     else:
         svdir = './' # for establishing ds objects below
     
-    # Log starting messages and start collection all lines
-    if msg:
-        line = f"Experiment header: {config['header']}\nTotal parameters: {encoder.total_params():,}\n"
-        U.message_board(line, "%s/epochout.txt"%svdir)
-        line = "%s\n%s\n"%(timestamp, config['header'])
-        allepochlines = [line]
-
     # Variables needed for saving gradient infomration
     if config['svgrad']:
         parms_enc = [str(tuple(parm.shape)) for parm in encoder.parameters()]
@@ -331,17 +339,22 @@ def train(epochs=1, runlen=50, svfreq=3600):
                 'encoder_parameters': encoder.total_params(),
             },
         )
-    
-    # Train
-    running_time = deque(maxlen=runlen) # Full time
-    load_time = deque(maxlen=runlen) # load_batch time
-    graph_time = deque(maxlen=runlen) # train_step time
-    svtime = time()
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
-    
-    #_ = denovo_base_eval(encoder)
+    pbar = tqdm(
+        L.dataloader['train'],
+        #total=train_steps,
+        smoothing=0.6,
+        #disable=not self.accelerator.is_local_main_process
+    )
 
-    eval_loss = 999999999
+    # Train
+    eval_out = denovo_base_eval(encoder)
+    eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
+    if config['log_wandb']:
+        wandb.log({'global_step': encoder.global_step.item()} | eval_out)
+    svtime = time()
+
+    eval_loss = 0
     loss_list = []
     max_steps_tick=False
     for epoch in range(epochs):
@@ -350,25 +363,24 @@ def train(epochs=1, runlen=50, svfreq=3600):
         
         L.dataset['train'].set_epoch(epoch)
         start_load = time()
-        for step, batch in enumerate(L.dataloader['train']):
-            running_time.append(0 if step==0 else time()-start_step)
+        for step, batch in enumerate(pbar):
             start_step = time()
-            load_time.append(start_step-start_load)
             
             # Train model for a step
-            TT=time()
-            #T['trinary_mz'].stdev = 0.5*np.exp(-6.9314718055994526e-06*float(encoder.global_step))
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
             loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
             )
             
             # Save running stats
-            loss = loss.detach().cpu().numpy()
+            loss = loss.item()
             T[random_task].log_loss(loss)
-            loss_list.append(T[random_task].calc_avg_running_loss()['main'])
-            running_time.append(time()-start_step)
-            graph_time.append(time()-TT)
+            if config['log_wandb']:
+                wandb.log({
+                    'learning_rate': optencoder.param_groups[-1]['lr'],
+                    'global_step': encoder.global_step.item(), 
+                    random_task: loss,
+                })
             
             # Gradient tracking
             if config['svgrad']:
@@ -383,36 +395,25 @@ def train(epochs=1, runlen=50, svfreq=3600):
             
             # Stdout
             if step%10==0:
-                means = tuple([
-                    task.calc_avg_running_loss()['main']
-                    for task_name, task in T.items()
-                ])
+                means = tuple([task.calc_avg_running_loss()['main'] for task_name, task in T.items()])
                 loss_string = loss_spec%means
-                sys.stdout.write(
-                    "\r\033[KStep %6d, loss=%s (%.3f,%.3f,%.3f s)"%(
-                        step, loss_string, 
-                        np.mean(running_time), np.mean(load_time), 
-                        np.mean(graph_time)
-                    )
-                )
+                pbar.set_description(f"\rStep {step}, loss={loss_string}")
             
             # Saving weights and testing
             if time()-svtime > svfreq:
-                remark = "step_%d_loss_%.5f"%(encoder.global_step, eval_loss)
+                remark = "step_%d_loss_%.5f"%(encoder.global_step.item(), eval_loss)
                 last_loss = float(".".join(U.find_file("model_enc", svdir+'/weights').split('_')[-1].split('.')[:-1]))
                 if swt & (eval_loss < last_loss):
                     U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
                 svtime = time()
 
             # Run evaluation and save training_loss
-            if (step+1) % config['steps_per_report'] == 0:
-                eval_out = denovo_base_eval(encoder)[['aa_recall', 'peptide']]
-                #eval_loss = evaluation(list(T.keys())[0])
-                if msg:
-                    Line = "Validation loss at step %d: %.6f\n"%(step+1, eval_loss)
-                    U.message_board(Line, "%s/epochout.txt"%svdir)
-                    save_train_loss("%s/train_loss.txt"%svdir, loss_list)
-                    allepochlines.append(Line)
+            if encoder.global_step % config['steps_per_report'] == 0:
+                eval_out = denovo_base_eval(encoder)
+                eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
+                sys.stdout.write(f"\rEvaluation @ Global step={encoder.global_step.item()}: aa={eval_out['aa_recall']}, peptide={eval_out['peptide']}\n")
+                if config['log_wandb']:
+                    wandb.log({'global_step': encoder.global_step.item()} | eval_out)
                 loss_list = []
                 
             start_load = time()
@@ -420,7 +421,6 @@ def train(epochs=1, runlen=50, svfreq=3600):
             # Arrest training at max_steps
             if int(encoder.global_step) == config['max_steps']:
                 print()
-                if msg: save_train_loss("%s/train_loss.txt"%svdir, loss_list)
                 max_steps_tick = True
                 break
 
@@ -437,9 +437,6 @@ def train(epochs=1, runlen=50, svfreq=3600):
             epoch, encoder.global_step.cpu().detach().numpy(), loss_string, time()-start_epoch
         )
         sys.stdout.write("\r\033[K%s\n"%Line)
-        if msg:
-            U.message_board(Line+'\n', "%s/epochout.txt"%svdir)
-            allepochlines.append(Line+"\n")
 
     # End of pre-training
     # Save weights, perhaps
@@ -452,24 +449,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
         np.savetxt(svdir+"/allloss", np.array(all_loss))
         np.savetxt(svdir+"/parmgrads", np.array(parmgrads))
 
-    # Run quick(ish) few shot downstream evaluation
-    if config['downstream'] is not None:
-        for dstask in config['downstream']:
-            DS = allds[dstask](
-                dsconfig, base_model=encoder, 
-                svdir='%s/downstream/%s/'%(svdir, dstask)
-            )
-            sys.stdout.write("\r\033[KDownstream evlauation: %s\n"%(dstask))
-            line, highline = DS.TrainEval()
-            Line = "Downstream evlauation: %s; "%(dstask) + highline
-            sys.stdout.write("\r\033[K%s\n"%Line)
-            if msg:
-                U.message_board("\n".join(line)+'\n', "%s/epochout.txt"%svdir)
-                allepochlines.append(Line+"\n")
-    if msg:
-        # Append results to the .all files
-        U.message_board("".join(allepochlines), "save/epochout.all")
-    
+        
     print()
 
 if __name__ == '__main__':

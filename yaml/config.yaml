@@ -1,7 +1,7 @@
 seed:
 max_peaks: 100
-epochs: 2
-steps_per_report: 10000
+epochs: 5
+steps_per_report: 40000 #100000
 max_steps: 1e10
 batch_size: 100
 lr: 1e-4
@@ -18,14 +18,14 @@ tasks:
 downstream:
   #- denovo_ar
 
-log_wandb: False
-wandb_project: debug
+log_wandb: True
+wandb_project: foundation
 wandb_entity: joellapin
 
 load: False
 loadpath:
 log: False
-svwts: False
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
