@@ -200,7 +200,7 @@ def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
         dnconfig['encoder_dict'] = {**mconf['encoder_dict'], 'empty': False}
         dnconfig['top_peaks'] = config['max_peaks']
         dnconfig['batch_size'] = config['batch_size']
-        dnconfig['epochs'] = 1
+        dnconfig['epochs'] = dsconfig['epochs']
         dnconfig['save_weights'] = False
         dnconfig['log_wandb'] = False
         dnconfig['prev_wts'] = None
@@ -365,7 +365,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
         start_load = time()
         for step, batch in enumerate(pbar):
             start_step = time()
-            
+
             # Train model for a step
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
             loss = train_step(
@@ -401,11 +401,13 @@ def train(epochs=1, runlen=50, svfreq=3600):
             
             # Saving weights and testing
             if time()-svtime > svfreq:
-                remark = "step_%d_loss_%.5f"%(encoder.global_step.item(), eval_loss)
-                last_loss = float(".".join(U.find_file("model_enc", svdir+'/weights').split('_')[-1].split('.')[:-1]))
-                if swt & (eval_loss < last_loss):
-                    U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
-                svtime = time()
+                remark = f"step_{encoder.global_step.item()}_last"
+                U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
+                #remark = "step_%d_loss_%.5f"%(encoder.global_step.item(), eval_loss)
+                #last_loss = float(".".join(U.find_file("model_enc", svdir+'/weights').split('_')[-1].split('.')[:-1]))
+                #if swt & (eval_loss < last_loss):
+                #    U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
+                #svtime = time()
 
             # Run evaluation and save training_loss
             if encoder.global_step % config['steps_per_report'] == 0:

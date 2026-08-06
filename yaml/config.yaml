@@ -1,7 +1,7 @@
 seed:
 max_peaks: 100
 epochs: 5
-steps_per_report: 40000 #100000
+steps_per_report: 150000 #100000
 max_steps: 1e10
 batch_size: 100
 lr: 1e-4
