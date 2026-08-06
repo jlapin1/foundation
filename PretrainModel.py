@@ -407,7 +407,7 @@ def train(epochs=1, runlen=50, svfreq=3600):
                 #last_loss = float(".".join(U.find_file("model_enc", svdir+'/weights').split('_')[-1].split('.')[:-1]))
                 #if swt & (eval_loss < last_loss):
                 #    U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
-                #svtime = time()
+                svtime = time()
 
             # Run evaluation and save training_loss
             if encoder.global_step % config['steps_per_report'] == 0:
