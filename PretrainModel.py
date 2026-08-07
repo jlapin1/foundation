@@ -14,6 +14,8 @@ import re
 import wandb
 from tqdm import tqdm
 Adam = th.optim.Adam
+import multiprocessing
+multiprocessing.set_start_method('fork') # python 3.14 compatibility with dataloader
 # slurm doesn't always manage gpus well -> cublas error
 # you may need to set cuda_visible_devices={#} before python in shellscript.sh
 device = th.device("cuda" if th.cuda.is_available() else "cpu")

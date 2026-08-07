@@ -18,14 +18,14 @@ tasks:
 downstream:
   #- denovo_ar
 
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
 load: False
 loadpath:
 log: False
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False

@@ -1,8 +1,8 @@
 loader:
   dataset_path: 
-    train: /cmnfs/data/proteomics/foundational_model/PretrainV1/parquets/*train*parquet
-    val: /cmnfs/data/proteomics/foundational_model/PretrainV1/parquets/*val*parquet
-    test: /cmnfs/data/proteomics/foundational_model/PretrainV1/parquets/*test*parquet
+    train: /global/hdd/compms01/foundation/PretrainPT/*train*parquet
+    val: /global/hdd/compms01/foundation/PretrainPT/*val*parquet
+    test: /global/hdd/compms01/foundation/PretrainPT/*test*parquet
       #train: /cmnfs/data/proteomics/foundational_model/PretrainV2/parquets/*_train_*
       #val: /cmnfs/data/proteomics/foundational_model/PretrainV2/parquets/*val*
       #test: /cmnfs/data/proteomics/foundational_model/PretrainV2/parquets/*test*
