@@ -120,26 +120,30 @@ assert hasattr(header, 'name')
 # Optimizers
 optencoder = Adam(encoder.parameters(), config['lr'])
 
-if config['load']:
+if config['loadpath'] is not None:
     # Encoder
-    ldpth = config['loadpath']
-    enc_file_name = U.find_file('model_enc', ldpth)
+    loadpath = os.path.join(config['loadpath'], 'weights')
+    enc_file_name = U.find_file('model_enc', loadpath)
     encoder.load_state_dict(th.load(enc_file_name, map_location=device))
-    opt_file_name = U.find_file('opt_encopt', ldpth)
+    opt_file_name = U.find_file('opt_encopt', loadpath)
     U.load_optimizer_state(optencoder, opt_file_name, device)
     
     # Head(s)
     for task in config['tasks']:
-        head_file_name = U.find_file(task, ldpth)
+        head_file_name = U.find_file(task, loadpath)
         header.heads[task].load_state_dict(th.load(head_file_name, map_location=device))
         # ASSUMPTION: header optimizers follow name convention 
         # opt_{task}.wts.npy
-        opt_file_name = U.find_file("opt_%s"%task, ldpth)
+        opt_file_name = U.find_file("opt_%s"%task, loadpath)
         U.load_optimizer_state(
             header.opts[task], 
             opt_file_name,
             device
         )
+
+    save_path = config['loadpath']
+else:
+    save_path = None
 
 ################################################################################
 #                                    Loss                                      #
@@ -304,7 +308,7 @@ def save_train_loss(filepath, loss_list):
         loss_list = np.append(np.loadtxt(filepath), np.array(loss_list))
     np.savetxt(filepath, loss_list, fmt='%.6f')
 
-def train(epochs=1, runlen=50, svfreq=3600):
+def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
     
     # Shorthand
     bs = config['batch_size']
@@ -314,10 +318,14 @@ def train(epochs=1, runlen=50, svfreq=3600):
     # Create experiment directory in save/
     timestamp = U.timestamp()
     if (msg or swt):
-        svdir = 'save/' + timestamp
-        U.create_experiment(svdir, svwts=config['svwts'])
-        if config['svwts']: 
-            U.save_all_weights(svdir, (encoder, optencoder), header, remark="step_0_loss_999999999")
+        if save_path is None:
+            svdir = 'save/' + timestamp
+            U.create_experiment(svdir, svwts=config['svwts'])
+        else:
+            timestamp = save_path.split('/')[-1]
+            svdir = save_path
+        #if config['svwts']: 
+        #    U.save_all_weights(svdir, (encoder, optencoder), header, remark="step_0_loss_999999999")
     else:
         svdir = './' # for establishing ds objects below
     
@@ -350,10 +358,10 @@ def train(epochs=1, runlen=50, svfreq=3600):
     )
 
     # Train
-    eval_out = denovo_base_eval(encoder)
-    eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
-    if config['log_wandb']:
-        wandb.log({'global_step': encoder.global_step.item()} | eval_out)
+    #eval_out = denovo_base_eval(encoder)
+    #eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
+    #if config['log_wandb']:
+    #    wandb.log({'global_step': encoder.global_step.item()} | eval_out)
     svtime = time()
 
     eval_loss = 0
@@ -461,5 +469,5 @@ if __name__ == '__main__':
     if config['seed'] is not None:
         np.random.seed(config['seed'])
         th.manual_seed(config['seed'])
-    train(epochs=config['epochs'], runlen=100, svfreq=config['svfreq'])
+    train(epochs=config['epochs'], runlen=100, svfreq=config['svfreq'], save_path=save_path)
 
