@@ -10,7 +10,7 @@ tasks:
   #- trinary_ab
   #- hidden_mz
   #- hidden_ab
-  - hidden_spectrum
+  #- hidden_spectrum
   #- hidden_charge
   #- hidden_mass
   #- maldi
@@ -18,13 +18,13 @@ tasks:
 downstream:
   #- denovo_ar
 
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
-loadpath: /global/hdd/compms01/foundation/saved_models/2026-08-08_07-29-13
+loadpath:
 log: False
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False

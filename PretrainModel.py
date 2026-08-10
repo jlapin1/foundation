@@ -38,6 +38,8 @@ with open("./yaml/tasks.yaml", 'r') as stream:
     tc = yaml.safe_load(stream)
 with open("./yaml/downstream.yaml") as stream:
     dsconfig = yaml.safe_load(stream)
+with open(os.path.join("./denovo_base/yaml/config.yaml")) as stream:
+    dnconfig = yaml.safe_load(stream)
 config['lr'] = float(config['lr'])
 
 # NOTE about trading information between yaml files:
@@ -76,6 +78,17 @@ dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['run
 # Log downstream if logging pretraining
 dsconfig['log'] = config['log']
 dsconfig['header'] = config['header']
+# Denovo downstream evaluation
+# Match the encoder currently being pretrained so its state_dict below
+# loads cleanly (same architecture/dimensions)
+dnconfig['encoder_dict'] = {**mconf['encoder_dict'], 'empty': False}
+dnconfig['top_peaks'] = config['max_peaks']
+dnconfig['batch_size'] = config['batch_size']
+dnconfig['epochs'] = dsconfig['epochs']
+dnconfig['save_weights'] = False
+dnconfig['log_wandb'] = False
+dnconfig['prev_wts'] = None
+dnconfig['pretrained_encoder_path'] = None
 
 ################################################################################
 #                                  Loader                                      #
@@ -197,22 +210,7 @@ def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
     sys.path.insert(0, denovo_base_dir)
     try:
         model_runners = importlib.import_module("denovo_base.models.model_runners")
-
-        with open(os.path.join(denovo_base_dir, "yaml", "config.yaml")) as stream:
-            dnconfig = yaml.safe_load(stream)
-
-        # Match the encoder currently being pretrained so its state_dict below
-        # loads cleanly (same architecture/dimensions)
-        dnconfig['encoder_dict'] = {**mconf['encoder_dict'], 'empty': False}
-        dnconfig['top_peaks'] = config['max_peaks']
-        dnconfig['batch_size'] = config['batch_size']
-        dnconfig['epochs'] = dsconfig['epochs']
-        dnconfig['save_weights'] = False
-        dnconfig['log_wandb'] = False
-        dnconfig['prev_wts'] = None
-        dnconfig['pretrained_encoder_path'] = None
         dnconfig['freeze_encoder'] = freeze_encoder
-
         DS = model_runners.DenovoArObj(dnconfig, svdir=svdir, rddir=None, encoder_model=encoder)
         # Insert a snapshot of the current encoder's weights (a copy, so this
         # evaluation can't perturb the encoder actually being pretrained)
