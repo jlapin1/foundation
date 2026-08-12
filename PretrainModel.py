@@ -124,7 +124,7 @@ encoder.to(device) # model shouldn't need to come off of GPU entire run
 print(f"Total encoder parameters: {encoder.total_params():,}")
 
 # Header model(s)
-header = Header(header_dict)#, lr=config['lr'])
+header = Header(header_dict, lr=1e-7)
 for task in header.heads.keys(): header.heads[task].to(device)
 assert hasattr(header, 'name')
 
