@@ -4,6 +4,7 @@ epochs: 5
 steps_per_report: 150000 #100000
 max_steps: 1e10
 batch_size: 100
+lr_warmup_steps: 1000
 lr: 1e-4
 tasks:
   - trinary_mz
@@ -18,13 +19,13 @@ tasks:
 downstream:
   #- denovo_ar
 
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
-loadpath: /global/hdd/compms01/foundation/saved_models/2026-08-08_07-29-13
+loadpath: 
 log: False
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
