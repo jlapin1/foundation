@@ -6,6 +6,12 @@ from copy import deepcopy
 import torch as th
 F = th.nn.functional
 
+MzAbInp = lambda batch: th.cat(
+    [batch['mz'][...,None], batch['ab'][...,None]],
+    axis=-1
+)
+
+
 class Task:
     def __init__(self, typ, maxlen=50):
         assert typ.lower() in ['mz', 'ab', 'both', 'charge', 'mass']
@@ -299,6 +305,36 @@ class HiddenMass(Task):
 
         return loss
 
+class MassCompetition(Task):
+    def __init__(self, loss_weight=1.):
+        super().__init__(typ='mass')
+        self.loss_weight = loss_weight
+    
+    def inptarg(self, batch):
+        mzab_inp = MzAbInp(batch)
+        mass = batch['mass']
+        
+        inp = {
+            'x': mzab_inp,
+            'charge': batch['charge'],
+            'mass': batch['mass'],
+            'length': batch['length']
+        }
+
+
+        self.target = (mass[:,None] > mass[None]).float()
+
+        return inp
+
+    def loss(self, prediction):
+        loss = F.binary_cross_entropy(th.sigmoid(prediction), self.target, reduction='none')
+        #loss *= self.loss_weight
+        nodiag = th.full((prediction.shape[0], prediction.shape[0]), self.loss_weight).to(prediction.device)
+        nodiag = nodiag.fill_diagonal_(0)
+        loss *= nodiag
+
+        return loss
+
 class Maldi(Task):
     def __init__(self, freq=0.15):
         super().__init__(typ='both')
@@ -450,6 +486,7 @@ all_tasks = lambda tc: {
         loss_weight=tc['hidden_charge']['loss_weight']
     ),
     'hidden_mass': HiddenMass(loss_weight=tc['hidden_charge']['loss_weight']),
+    'mass_competition': MassCompetition(loss_weight=tc['mass_competition']['loss_weight']),
     'maldi': Maldi(**tc['maldi']),
     'resid_regr': ResidualRegression(**tc['resid_regr']),
 }

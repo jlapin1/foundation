@@ -173,12 +173,28 @@ class SpectrumHead(nn.Module):
 
         return {'mz': mz, 'ab': ab}
 
+class PLClassifierHead(nn.Module):
+    def __init__(
+        self,
+        in_units,
+        final_units=128,
+    ):
+        super(PLClassifierHead, self).__init__()
+        self.finalq = nn.Linear(in_units, final_units)
+        self.finalk = nn.Linear(in_units, final_units)
+
+    def forward(self, emb):
+        Q = self.finalq(emb).mean(1) # bs, units
+        K = self.finalk(emb).mean(1) # bs, units
+        logits = th.einsum('ab,cb->ac', Q, K)
+        return logits
+
 class Header(nn.Module):
     def __init__(self, 
                  head_dic,
                  final_seq_len=None,
                  final_ch=None,
-                 lr=1e-4
+                 lr=1e-7
                  ):
         super(Header, self).__init__()
         self.head_dic = head_dic
@@ -218,6 +234,10 @@ class Header(nn.Module):
             dic = head_dic['hidden_mass']
             dic['num_classes'] = 3001
             self.heads['hidden_mass'] = ClassifierHead(**dic, in_units=IU)
+        
+        if 'mass_competition' in head_dic.keys():
+            dic = head_dic['mass_competition']
+            self.heads['mass_competition'] = PLClassifierHead(**dic, in_units=IU)
 
         if 'maldi' in head_dic.keys():
             dic = head_dic['maldi']

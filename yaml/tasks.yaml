@@ -20,6 +20,8 @@ hidden_charge:
   loss_weight: 1
 hidden_mass:
   loss_weight: 1
+mass_competition:
+  loss_weight: 1
 maldi:
   freq: 0.15
 resid_regr:
