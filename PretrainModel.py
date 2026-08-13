@@ -114,6 +114,17 @@ def turn_grad_on(encoder_model, grad_vector=None):
     for parm, needs_grad in zip(encoder_model.parameters(), grad_vector):
         parm.requires_grad = needs_grad
 
+def update_lr():
+    warmup_left = config['lr_warmup_steps'] - lr_phase_count[0]
+    if warmup_left > 0:
+        step_size = (config['lr'] - optencoder.param_groups[-1]['lr']) / warmup_left
+        optencoder.param_groups[-1]['lr'] += step_size
+        for optimizer in header.opts.values():
+            optimizer.param_groups[-1]['lr'] += step_size
+        lr_phase_count[0] += 1
+    else:
+        lr_phase_count[1] += 1
+
 # Encoder model
 if mconf['encoder_name'] == 'depthcharge':
     print("Using Depthcharge encoder")
@@ -126,12 +137,13 @@ encoder.to(device) # model shouldn't need to come off of GPU entire run
 print(f"Total encoder parameters: {encoder.total_params():,}")
 
 # Header model(s)
-header = Header(header_dict)#, lr=config['lr'])
+header = Header(header_dict, lr=1e-7)
 for task in header.heads.keys(): header.heads[task].to(device)
 assert hasattr(header, 'name')
 
 # Optimizers
-optencoder = Adam(encoder.parameters(), config['lr'])
+lr_phase_count = [0,0]
+optencoder = Adam(encoder.parameters(), 1e-7)
 
 if config['loadpath'] is not None:
     # Encoder
@@ -269,6 +281,8 @@ def train_step(batch, task, enc_opt, head_opt):
     loss.backward()
     enc_opt.step()
     head_opt.step()
+
+    update_lr()
     
     encoder.global_step +=1 
 
