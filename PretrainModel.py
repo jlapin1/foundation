@@ -284,7 +284,7 @@ def train_step(batch, task, enc_opt, head_opt):
 
     update_lr()
     
-    encoder.global_step +=1 
+    encoder.global_step +=1
 
     return loss
 

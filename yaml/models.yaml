@@ -58,6 +58,8 @@ header_dict:
       norm_type: batch
       penult_units: 512
       spectrum_wise: True
+    mass_competition:
+      final_units: 128
     maldi:
       num_classes: 2
       norm_type: batch

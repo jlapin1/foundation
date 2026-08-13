@@ -14,18 +14,19 @@ tasks:
   #- hidden_spectrum
   #- hidden_charge
   #- hidden_mass
+  - mass_competition
   #- maldi
   #- resid_regr
 downstream:
   #- denovo_ar
 
-log_wandb: False
+log_wandb: True
 wandb_project: foundation
 wandb_entity: joellapin
 
 loadpath: 
 log: False
-svwts: False
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
