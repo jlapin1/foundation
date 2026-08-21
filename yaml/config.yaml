@@ -1,11 +1,10 @@
 seed:
 max_peaks: 100
 epochs: 5
-steps_per_report: 150000 #100000
-max_steps: 1e10
 batch_size: 100
 lr_warmup_steps: 1000
 lr: 1e-4
+max_steps: 1e10
 tasks:
   - trinary_mz
   #- trinary_ab
@@ -14,20 +13,22 @@ tasks:
   #- hidden_spectrum
   #- hidden_charge
   #- hidden_mass
-  - mass_competition
+  #- mass_competition
   #- maldi
   #- resid_regr
 downstream:
   #- denovo_ar
+first_report:
+  execute: False
+  only_dnv: False
+steps_per_report: 150000 #100000
 
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
-loadpath: 
-log: False
-svwts: True
+loadpath:
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
-header: "PretrainV2-50M"

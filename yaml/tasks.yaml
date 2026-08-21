@@ -24,6 +24,7 @@ mass_competition:
   loss_weight: 1
 maldi:
   freq: 0.15
+  switch_weight: 2
 resid_regr:
   freq: 1.0
   stdev: 0.1

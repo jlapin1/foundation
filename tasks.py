@@ -336,9 +336,10 @@ class MassCompetition(Task):
         return loss
 
 class Maldi(Task):
-    def __init__(self, freq=0.15):
+    def __init__(self, freq=0.15, switch_weight=1):
         super().__init__(typ='both')
         self.freq = freq
+        self.switch_weight = switch_weight
 
     def inptarg(self, batch):
         mz = deepcopy(batch['mz'])
@@ -350,13 +351,13 @@ class Maldi(Task):
         nonzero_spectrum_indices = th.cat([m.unsqueeze(1) for m in nonzero_spectrum_indices], 1)
         
         # Choose 15% of the non-zero peaks
-        hold = th.rand(nonzero_spectrum_indices.shape[0]) < self.freq
-        rand_indices = nonzero_spectrum_indices[hold]
-        hold = th.rand(rand_indices.shape[0])
+        inds_of_nz = th.rand(nonzero_spectrum_indices.shape[0]) < self.freq
+        rand_indices = nonzero_spectrum_indices[inds_of_nz]
+        #hold = th.rand(rand_indices.shape[0])
 
         # Choose half to keep and half to permute
         #keep_indices = rand_indices[hold<0.5]
-        change_indices = rand_indices[hold>=0.5]
+        change_indices = rand_indices #[hold>=0.5]
         
         # Random permutation of (indices of) the peak indices to change
         perm = th.randperm(change_indices.shape[0], device=mz.device)
@@ -398,8 +399,8 @@ class Maldi(Task):
         self.target = target
         
         # Loss mask
-        mask = th.zeros_like(mz)
-        mask[rand_indices.split(1,-1)] = 1
+        mask = th.ones_like(mz)
+        #mask[rand_indices.split(1,-1)] = 1
         #mask = (th.arange(sl, device=mz.device)[None].tile(bs,1) < batch['length'][:,None]).float()
         self.mask = mask
 
@@ -407,6 +408,8 @@ class Maldi(Task):
 
     def loss(self, prediction):
         loss = F.cross_entropy(prediction.transpose(-1,-2), self.target, reduction='none')
+        #loss = F.binary_cross_entropy(prediction.squeeze(-1).sigmoid(), self.target.float(), reduction='none')
+        loss[self.target==1] *= self.switch_weight
         loss *= self.mask
         loss = loss.sum() / self.mask.sum()
 

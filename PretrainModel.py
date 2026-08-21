@@ -75,9 +75,6 @@ dc['loader']['batch_size'] = config['batch_size']
 dsconfig['encoder_dict'] = mconf['encoder_dict']
 # set kv_indim in decoder_dict to the enocoder's running_units
 dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['running_units']
-# Log downstream if logging pretraining
-dsconfig['log'] = config['log']
-dsconfig['header'] = config['header']
 # Denovo downstream evaluation
 # Match the encoder currently being pretrained so its state_dict below
 # loads cleanly (same architecture/dimensions)
@@ -85,10 +82,12 @@ dnconfig['encoder_dict'] = {**mconf['encoder_dict'], 'empty': False}
 dnconfig['top_peaks'] = config['max_peaks']
 dnconfig['batch_size'] = config['batch_size']
 dnconfig['epochs'] = dsconfig['epochs']
+print(f"Denovo runs will last {dnconfig['epochs']} epochs")
 dnconfig['save_weights'] = False
-dnconfig['log_wandb'] = False
+dnconfig['log_wandb'] = True if config['first_report']['only_dnv'] else False
 dnconfig['prev_wts'] = None
-dnconfig['pretrained_encoder_path'] = None
+dnconfig['pretrained_encoder_path'] = None # loading encoder inside denovo base
+dnconfig['loader']['val_name'] = dsconfig['loader']['val_species']
 
 ################################################################################
 #                                  Loader                                      #
@@ -146,25 +145,30 @@ lr_phase_count = [0,0]
 optencoder = Adam(encoder.parameters(), 1e-7)
 
 if config['loadpath'] is not None:
+    print("Loading previous experiment: ", end="")
     # Encoder
     loadpath = os.path.join(config['loadpath'], 'weights')
     enc_file_name = U.find_file('model_enc', loadpath)
-    encoder.load_state_dict(th.load(enc_file_name, map_location=device))
+    result = encoder.load_state_dict(th.load(enc_file_name, map_location=device))
+    print(result)
     opt_file_name = U.find_file('opt_encopt', loadpath)
     U.load_optimizer_state(optencoder, opt_file_name, device)
     
     # Head(s)
     for task in config['tasks']:
-        head_file_name = U.find_file(task, loadpath)
-        header.heads[task].load_state_dict(th.load(head_file_name, map_location=device))
-        # ASSUMPTION: header optimizers follow name convention 
-        # opt_{task}.wts.npy
-        opt_file_name = U.find_file("opt_%s"%task, loadpath)
-        U.load_optimizer_state(
-            header.opts[task], 
-            opt_file_name,
-            device
-        )
+        try:
+            head_file_name = U.find_file(task, loadpath)
+            header.heads[task].load_state_dict(th.load(head_file_name, map_location=device))
+            # ASSUMPTION: header optimizers follow name convention 
+            # opt_{task}.wts.npy
+            opt_file_name = U.find_file("opt_%s"%task, loadpath)
+            U.load_optimizer_state(
+                header.opts[task], 
+                opt_file_name,
+                device
+            )
+        except:
+            print(f"Weights for {task} task not found")
 
     save_path = config['loadpath']
 else:
@@ -324,12 +328,11 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
     
     # Shorthand
     bs = config['batch_size']
-    msg = config['log'] & (config['debug']!=True)
     swt = config['svwts'] & (config['debug']!=True)
     
     # Create experiment directory in save/
     timestamp = U.timestamp()
-    if (msg or swt):
+    if swt:
         if save_path is None:
             svdir = 'save/' + timestamp
             U.create_experiment(svdir, svwts=config['svwts'])
@@ -369,11 +372,15 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
         #disable=not self.accelerator.is_local_main_process
     )
 
+    # First report
+    if config['first_report']['execute'] | config['first_report']['only_dnv']:
+        eval_out = denovo_base_eval(encoder)
+        if config['first_report']['only_dnv']: sys.exit()
+        eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
+        if config['log_wandb']:
+            wandb.log({'global_step': encoder.global_step.item()} | eval_out)
+
     # Train
-    #eval_out = denovo_base_eval(encoder)
-    #eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
-    #if config['log_wandb']:
-    #    wandb.log({'global_step': encoder.global_step.item()} | eval_out)
     svtime = time()
 
     eval_loss = 0
@@ -422,7 +429,7 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
                 pbar.set_description(f"\rStep {step}, loss={loss_string}")
             
             # Saving weights and testing
-            if time()-svtime > svfreq:
+            if config['svwts'] and (time()-svtime > svfreq):
                 remark = f"step_{encoder.global_step.item()}_last"
                 U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
                 #remark = "step_%d_loss_%.5f"%(encoder.global_step.item(), eval_loss)
