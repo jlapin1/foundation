@@ -5,6 +5,7 @@ from utils import discretize_mz
 from copy import deepcopy
 import torch as th
 F = th.nn.functional
+device = th.device('cuda' if th.cuda.is_available() else 'cpu')
 
 MzAbInp = lambda batch: th.cat(
     [batch['mz'][...,None], batch['ab'][...,None]],
@@ -54,14 +55,18 @@ class Task:
             self.total_loss[key] = 0
         self.total_counter = 0
 
-class TrinaryTask(Task):
-    def __init__(self, typ, freq=0.15, stdev=5, clip_vals=None):
+class NaryTask(Task):
+    def __init__(self, typ, buckets=3, freq=0.15, stdev=5, clip_vals=None):
         super().__init__(typ)
+        self.buckets = buckets
         self.freq = freq
         self.stdev = stdev
         self.clip_op = lambda x: (
             x if clip_vals==None else x.clip(*clip_vals)
         )
+        
+        A = th.linspace(0, stdev*3/3, buckets//2, device=device)
+        self.bucket_bins = th.cat([-A.flip(-1)[:-1], A]) if buckets>3 else th.tensor([0.], device=device)
 
     def inptarg(self, batch, freq=None, std=None):
         
@@ -98,29 +103,11 @@ class TrinaryTask(Task):
         }
 
         # TARGET: Classify all inds
-        
-        # inds that are below original value (0)
-        zero = means > updates # 1d boolean
-        zero_inds = inds[zero] # nx2 indices
-        
-        # inds that are above original value (2)
-        two = means < updates # 1d boolean 
-        two_inds = inds[two] # nx2 indices
-        
-        # Create target one-hot classification tensor
-        # by default, everything starts with same/1
-        target = th.ones(mzab.shape, dtype=th.int64, device=dev)
-        
-        # Separate nx2 indices into (2,) tuple
-        target[zero_inds.split(1,1)] = th.zeros(
-            zero.sum(), dtype=th.int64, device=dev
-        )[:,None]
-        
-        target[two_inds.split(1,1)] = 2*th.ones(
-            two.sum(), dtype=th.int64, device=dev
-        )[:,None]
-        
-        self.target = F.one_hot(target, 3).type(th.float32)
+        target = th.zeros(mzab.shape, dtype=th.int64, device=dev)
+        buckets = th.bucketize(updates-means, self.bucket_bins)+1
+        for m in range(buckets.min(), buckets.max()+1, 1):
+            target[inds[buckets==m].split(1,1)] = m
+        self.target = F.one_hot(target, self.buckets).type(th.float32)
         
         return inp
 
@@ -469,10 +456,8 @@ class ResidualRegression(Task):
         return loss
 
 all_tasks = lambda tc: {
-    'trinary_mz': TrinaryTask('mz', stdev=tc['trinary_mz']['stdev']),
-    'trinary_ab': TrinaryTask(
-        'ab', stdev=tc['trinary_ab']['stdev'], clip_vals=[0., 1.]
-    ),
+    'nary_mz': NaryTask('mz', buckets=tc['nary_mz']['buckets'], stdev=tc['nary_mz']['stdev']),
+    'nary_ab': NaryTask('ab', buckets=tc['nary_ab']['buckets'], stdev=tc['nary_ab']['stdev'], clip_vals=[0., 1.]),
     'hidden_mz': HiddenPeak(
         'mz', loss_weight=tc['hidden_mz']['loss_weight'],
         binsz=tc['hidden_mz']['binsz'], mzlims=tc['hidden_mz']['mzlims'],

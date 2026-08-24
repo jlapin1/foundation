@@ -206,13 +206,13 @@ class Header(nn.Module):
             dic = head_dic['pepseq']
             self.heads['pepseq'] = SequenceHead(**dic, in_units=IU)
         
-        if 'trinary_ab' in head_dic.keys():
-            dic = head_dic['trinary_ab']
-            self.heads['trinary_ab'] = ClassifierHead(**dic, in_units=IU)
+        if 'nary_ab' in head_dic.keys():
+            dic = head_dic['nary_ab']
+            self.heads['nary_ab'] = ClassifierHead(**dic, in_units=IU)
 
-        if 'trinary_mz' in head_dic.keys():
-            dic = head_dic['trinary_mz']
-            self.heads['trinary_mz'] = ClassifierHead(**dic, in_units=IU)
+        if 'nary_mz' in head_dic.keys():
+            dic = head_dic['nary_mz']
+            self.heads['nary_mz'] = ClassifierHead(**dic, in_units=IU)
 
         if 'hidden_ab' in head_dic.keys():
             dic = head_dic['hidden_ab']

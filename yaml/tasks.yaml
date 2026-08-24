@@ -1,7 +1,9 @@
-trinary_mz:
-  freq: 0.15
+nary_mz:
+  buckets: 3
+  freq: 0.075
   stdev: 0.1
-trinary_ab:
+nary_ab:
+  buckets: 3
   freq: 0.15
   stdev: 0.05
 hidden_mz:

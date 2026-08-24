@@ -6,8 +6,8 @@ lr_warmup_steps: 1000
 lr: 1e-4
 max_steps: 1e10
 tasks:
-  - trinary_mz
-  #- trinary_ab
+  - nary_mz
+  #- nary_ab
   #- hidden_mz
   #- hidden_ab
   #- hidden_spectrum
@@ -21,7 +21,7 @@ downstream:
 first_report:
   execute: False
   only_dnv: False
-steps_per_report: 150000 #100000
+steps_per_report: 150000
 
 log_wandb: False
 wandb_project: foundation

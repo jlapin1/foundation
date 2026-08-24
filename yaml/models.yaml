@@ -28,13 +28,11 @@ encoder_dict:
 header_dict:
   in_units: 256
   tasks:
-    trinary_ab:
-      num_classes: 3
+    nary_ab:
       norm_type: batch
       penult_units: 512
       spectrum_wise: False
-    trinary_mz:
-      num_classes: 3
+    nary_mz:
       norm_type: batch
       penult_units: 512
       spectrum_wise: False

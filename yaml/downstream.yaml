@@ -1,85 +1,85 @@
-eval_only: False
-batch_size: 100
-lr: 0.0001
-lr_warmup: True
-lr_warmup_start: 1.0e-6
-lr_warmup_end: 1.5e-4
-lr_warmup_steps: 20000
-pretrain_path: # if starting with a pretrained encoder
-dswts: # Load weights from previous downstream run (project path->timestamp)
-load_last: False
+#eval_only: False
+#batch_size: 100
+#lr: 0.0001
+#lr_warmup: True
+#lr_warmup_start: 1.0e-6
+#lr_warmup_end: 1.5e-4
+#lr_warmup_steps: 20000
+#pretrain_path: # if starting with a pretrained encoder
+#dswts: # Load weights from previous downstream run (project path->timestamp)
+#load_last: False
 epochs: 1
-steps_per_epoch: 10000
-train_encoder: True
-encoder_start: 0
-log_wandb: False
-save_weights: False
-high_score: aa_recall
+#steps_per_epoch: 10000
+#train_encoder: True
+#encoder_start: 0
+#log_wandb: False
+#save_weights: False
+#high_score: aa_recall
 
 # Loader options
 loader:
-  dataset_path: /cmnfs/data/proteomics/foundational_model/9_species_V1
-  val_species: saccharomyces_cerevisiae
-  dictionary_path: /cmnfs/data/proteomics/foundational_model/9_species_V1/ns_dictionary.txt
-  pep_length: [0, 40]
-  top_pks: 100
-  buffer_size: 10000
-  batch_size: 100
-  num_workers: 8
-  val_steps: 100
-  remove_columns:
-    - 'evidence_index'
-    - 'scan_number'
-    - 'sequence'
-    - 'precursor_mz'
-    - 'retention_time'
-    - 'title'
-    - 'scans'
-  scratch:
-    use: False
-    path: /media/storage/scratch/ninespecies/
+  #dataset_path:
+  val_species: vigna
+  #dictionary_path:
+  #pep_length: [0, 40]
+  #top_pks: 100
+  #buffer_size: 10000
+  #batch_size: 100
+  #num_workers: 8
+  #val_steps: 100
+  #remove_columns:
+  #  - 'evidence_index'
+  #  - 'scan_number'
+  #  - 'sequence'
+  #  - 'precursor_mz'
+  #  - 'retention_time'
+  #  - 'title'
+  #  - 'scans'
+  #scratch:
+  #  use: False
+  #  path: /media/storage/scratch/ninespecies/
 
-# Downstream task specific options
-denovo_type: diff # *diff* | *
-denovo_ar:
-  head_dict:
-    running_units: 512
-    max_sequence_length: 100
-    depth: 9
-    d: 64
-    h: 8
-    ffn_multiplier: 2
-    ce_units: 256
-    use_charge: True
-    use_energy: False
-    use_mass: True
-    prec_type: 'inject_pre' # inject_pre | inject_ffn | inject_norm | pretoken | posttoken | None
-    norm_type: 'layer'
-    prenorm: True
-    preembed: True
-    penultimate_units:
-    pool: False
-    dropout: 0.25
-    alphabet: False
-denovo_diff:
-  head_dict:
-    running_units: 512
-    sequence_length: 30
-    depth: 9
-    d: 64
-    h: 8
-    ffn_multiplier: 2
-    ce_units: 256
-    use_charge: True
-    use_energy: False
-    use_mass: True
-    prec_type: None
-    norm_type: 'layer'
-    prenorm: True
-    preembed: True
-    penultimate_units:
-    pool: False
-    dropout: 0
-    alphabet: False
-  self_condition: True
-
+## Downstream task specific options
+#denovo_type: diff # *diff* | *
+#denovo_ar:
+#  head_dict:
+#    running_units: 512
+#    max_sequence_length: 100
+#    depth: 9
+#    d: 64
+#    h: 8
+#    ffn_multiplier: 2
+#    ce_units: 256
+#    use_charge: True
+#    use_energy: False
+#    use_mass: True
+#    prec_type: 'inject_pre' # inject_pre | inject_ffn | inject_norm | pretoken | posttoken | None
+#    norm_type: 'layer'
+#    prenorm: True
+#    preembed: True
+#    penultimate_units:
+#    pool: False
+#    dropout: 0.25
+#    alphabet: False
+#denovo_diff:
+#  head_dict:
+#    running_units: 512
+#    sequence_length: 30
+#    depth: 9
+#    d: 64
+#    h: 8
+#    ffn_multiplier: 2
+#    ce_units: 256
+#    use_charge: True
+#    use_energy: False
+#    use_mass: True
+#    prec_type: None
+#    norm_type: 'layer'
+#    prenorm: True
+#    preembed: True
+#    penultimate_units:
+#    pool: False
+#    dropout: 0
+#    alphabet: False
+#  self_condition: True
+#

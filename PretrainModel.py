@@ -51,6 +51,9 @@ config['lr'] = float(config['lr'])
 
 # Header model
 header_dict = mconf['header_dict']
+# Set -ary tasks prediction classes
+header_dict['tasks']['nary_mz']['num_classes'] = tc['nary_mz']['buckets']
+header_dict['tasks']['nary_ab']['num_classes'] = tc['nary_ab']['buckets']
 mzh = tc['hidden_mz']
 header_dict['tasks']['hidden_mz']['bins'] = int( 
     (mzh['mzlims'][1] - mzh['mzlims'][0]) / mzh['binsz']
@@ -63,18 +66,7 @@ header_dict['tasks']['hidden_charge']['num_classes'] = tc['hidden_charge']['max_
 header_dict = {task: header_dict['tasks'][task] for task in config['tasks']}
 # pass encoder_dict's running_units to header_dict as in_units
 header_dict['in_units'] = mconf['encoder_dict']['running_units']
-# Override downstream saving if log is False
-if config['svwts'] is False:
-    dsconfig['save_weights'] = False
-# Override/add to downstream/dataset top_pks
-dsconfig['loader']['top_pks'] = config['max_peaks']
-dsconfig['loader']['batch_size'] = config['batch_size']
-dc['loader']['top_pks'] = config['max_peaks']
-dc['loader']['batch_size'] = config['batch_size']
-# set downstream encoder_dict
-dsconfig['encoder_dict'] = mconf['encoder_dict']
-# set kv_indim in decoder_dict to the enocoder's running_units
-dsconfig['denovo_ar']['head_dict']['running_units'] = mconf['encoder_dict']['running_units']
+
 # Denovo downstream evaluation
 # Match the encoder currently being pretrained so its state_dict below
 # loads cleanly (same architecture/dimensions)
@@ -348,7 +340,7 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
     if config['svgrad']:
         parms_enc = [str(tuple(parm.shape)) for parm in encoder.parameters()]
         parms_head = [
-            str(tuple(parm.shape)) for parm in header.heads['trinary_mz'].parameters()
+            str(tuple(parm.shape)) for parm in header.heads['nary_mz'].parameters()
         ]
         parmshapes = parms_enc + parms_head
         parmgrads = []
@@ -359,7 +351,7 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
             project=config['wandb_project'],
             entity=config['wandb_entity'],
             config={
-                'config': {'main': config, 'datasets': dc, 'models': mconf, 'tasks': tc, 'downstream': dsconfig},
+                'config': {'main': config, 'datasets': dc, 'models': mconf, 'tasks': tc, 'downstream': dnconfig},
                 'save_directory': timestamp,
                 'encoder_parameters': encoder.total_params(),
             },
