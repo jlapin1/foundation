@@ -19,6 +19,7 @@ def map_fn(
     ab_key='ab',
     charge_key='charge',
     mass_key='mass',
+    name_key='name',
 ):
     ab = example[ab_key]
     ab_sort = (-ab).argsort()[:top]
@@ -40,6 +41,7 @@ def map_fn(
     example['charge'] = example[charge_key]
     example['mass'] = example[mass_key]
     example['spectrum_length'] = spectrum_length
+    example['name'] = example[name_key]
     if tokenizer is not None:
         tokenized_sequence = tokenizer(example['modified_sequence'])
         peptide_length = len(tokenized_sequence)
@@ -133,12 +135,7 @@ class LoaderHF:
             None"""
 
         # Dataset
-        """dataset_path_ = os.path.join(dataset_path, "parquet/processed")
-        train_files = glob(os.path.join(dataset_path_, '*'))
-        val_files = glob(os.path.join(dataset_path_, f"*{val_species}*"))
-        for val_file in val_files:
-            train_files.remove(val_file)"""
-        data_files = dataset_path#{'train': train_files, 'val': val_files,}
+        data_files = {m:n for m, n in dataset_path.items() if n!=None}
         dataset = load_dataset(
             'parquet',
             data_files=data_files,
@@ -161,6 +158,7 @@ class LoaderHF:
             ab_key = kwargs['custom']['ab_key']
             charge_key = kwargs['custom']['charge_key']
             mass_key = kwargs['custom']['mass_key']
+            name_key = kwargs['custom']['name_key']
         else:
             mz_key = 'mz'
             ab_key = 'ab'
@@ -178,6 +176,7 @@ class LoaderHF:
                 ab_key=ab_key,
                 charge_key=charge_key,
                 mass_key=mass_key,
+                name_key=name_key,
             ), 
             remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
@@ -220,8 +219,9 @@ class LoaderHF:
         self.dataloader = {
             'train': self.build_dataloader(dataset['train'], batch_size, num_workers),
             'val':   self.build_dataloader(dataset['val']  , batch_size, 0),
-            'test':  self.build_dataloader(dataset['test'] , batch_size, 0),
         }
+        if 'test' in dataset:
+            self.dataloader['test'] = self.build_dataloader(dataset['test'], batch_size, 0)
 
     def build_dataloader(self, dataset, batch_size, num_workers):
         return DataLoader(

@@ -1,10 +1,11 @@
 loader:
   dataset_path: 
-    train: /global/hdd/compms01/foundation/PretrainPT/*train*parquet
-    val: /global/hdd/compms01/foundation/PretrainPT/*val*parquet
-    test: /global/hdd/compms01/foundation/PretrainPT/*test*parquet
+    train: /global/hdd/compms01/foundation/9_species_V2/parquet/processed/*parquet
+    val: /global/hdd/compms01/foundation/PretrainPT/parquet/processed/*mungo*parquet
+    test: #/global/hdd/compms01/foundation/PretrainPT/*test*parquet
+  path_extension:
   dictionary_path: #/cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt
-  pep_length: [0, 30]
+  pep_length: [0, 40]
   top_pks: 100
   buffer_size: 10000
   batch_size: 100
@@ -20,7 +21,8 @@ loader:
     use: False
     path: /media/storage/scratch/pretrain/
   custom:
-    mz_key: mz
-    ab_key: ab
-    charge_key: charge
-    mass_key: mass
+    mz_key: mz_array
+    ab_key: intensity_array
+    charge_key: precursor_charge
+    mass_key: precursor_mass
+    name_key: experiment_name

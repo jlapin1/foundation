@@ -1,6 +1,6 @@
 nary_mz:
   buckets: 3
-  freq: 0.075
+  freq: 0.15
   stdev: 0.1
 nary_ab:
   buckets: 3

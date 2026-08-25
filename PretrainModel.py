@@ -357,12 +357,6 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
             },
         )
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
-    pbar = tqdm(
-        L.dataloader['train'],
-        #total=train_steps,
-        smoothing=0.6,
-        #disable=not self.accelerator.is_local_main_process
-    )
 
     # First report
     if config['first_report']['execute'] | config['first_report']['only_dnv']:
@@ -382,11 +376,17 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
         start_epoch = time()
         for task_name, task in T.items(): task.reset_total_loss()
         
+        pbar = tqdm(
+            L.dataloader['train'],
+            #total=train_steps,
+            smoothing=0.6,
+            #disable=not self.accelerator.is_local_main_process
+        )
         L.dataset['train'].set_epoch(epoch)
         start_load = time()
         for step, batch in enumerate(pbar):
             start_step = time()
-
+            
             # Train model for a step
             random_task = np.random.choice(list(header.heads.keys()), 1)[0]
             loss = train_step(

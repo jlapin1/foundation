@@ -1,6 +1,6 @@
 seed:
 max_peaks: 100
-epochs: 5
+epochs: 50
 batch_size: 100
 lr_warmup_steps: 1000
 lr: 1e-4
@@ -23,12 +23,12 @@ first_report:
   only_dnv: False
 steps_per_report: 150000
 
-log_wandb: False
+log_wandb: True
 wandb_project: foundation
 wandb_entity: joellapin
 
 loadpath:
-svwts: False
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
