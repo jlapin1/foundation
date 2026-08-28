@@ -240,6 +240,31 @@ def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
     return out[-1]
 
 ################################################################################
+#                    nearest-neighbor evaluation (encoder embeddings)          #
+################################################################################
+
+import nn_eval
+
+def nearest_neighbor_eval(encoder, svdir='./', dset='val'):
+    """
+    Encode the held-out test set with `encoder`'s current weights and, for
+    each spectrum, write its top-n nearest neighbors (by pooled embedding
+    similarity) to a parquet file under `svdir`/nn_eval/.
+    """
+    cfg = config['nn_eval']
+    outdir = os.path.join(svdir, 'nn_eval')
+    os.makedirs(outdir, exist_ok=True)
+    output_path = os.path.join(outdir, "step_%d.parquet" % encoder.global_step.item())
+
+    nn_eval.evaluate_similarity(
+        encoder, L, output_path,
+        top_n=cfg['top_n'], pooling=cfg['pooling'], metric=cfg['metric'],
+        query_batch_size=cfg['query_batch_size'],
+    )
+
+    return output_path
+
+################################################################################
 #                                  Training                                    #
 ################################################################################
 
@@ -283,33 +308,6 @@ def train_step(batch, task, enc_opt, head_opt):
     encoder.global_step +=1
 
     return loss
-
-"""
-def evaluation(task):
-    encoder.eval()
-    header.eval()
-
-    tot = 0
-    count = 0
-    with th.no_grad():
-        for step, batch in enumerate(L.dataloader['val']):
-            print("\rEvaluation step %d%50s"%(step+1, ""), end='')
-            batch = U.Dict2dev(batch, device, inplace=False)
-            inp = T[task].inptarg(batch)
-            inp['length'] = batch['length']
-            head_outputs = [task]
-            
-            enc_output = encoder(**inp)
-            prediction = header(enc_output['emb'], head_outputs)
-            loss = T[task].loss(prediction[task])
-
-            tot += loss.sum()
-            count += np.prod(tuple(loss.shape))
-        mean_loss = float(tot.detach().cpu().numpy()) / count
-    print("\rValidation loss at step %d: %.6f%50s"%(encoder.global_step, mean_loss, ""))
-
-    return mean_loss
-"""
 
 def save_train_loss(filepath, loss_list):
     if os.path.exists(filepath):
@@ -360,11 +358,13 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
 
     # First report
     if config['first_report']['execute'] | config['first_report']['only_dnv']:
-        eval_out = denovo_base_eval(encoder)
-        if config['first_report']['only_dnv']: sys.exit()
-        eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
+        #eval_out = denovo_base_eval(encoder)
+        #if config['first_report']['only_dnv']: sys.exit()
+        #eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
         if config['log_wandb']:
             wandb.log({'global_step': encoder.global_step.item()} | eval_out)
+        if config['nn_eval']['execute'] and 'val' in L.dataloader:
+            nearest_neighbor_eval(encoder, svdir=svdir)
 
     # Train
     svtime = time()
@@ -437,6 +437,9 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
                 sys.stdout.write(f"\rEvaluation @ Global step={encoder.global_step.item()}: aa={eval_out['aa_recall']}, peptide={eval_out['peptide']}\n")
                 if config['log_wandb']:
                     wandb.log({'global_step': encoder.global_step.item()} | eval_out)
+                if config['nn_eval']['execute'] and 'test' in L.dataloader:
+                    nn_path = nearest_neighbor_eval(encoder, svdir=svdir)
+                    sys.stdout.write(f"\rWrote nearest-neighbor eval to {nn_path}\n")
                 loss_list = []
                 
             start_load = time()

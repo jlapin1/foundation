@@ -10,7 +10,8 @@ import pandas as pd
 import numpy as np
 
 def map_fn(
-    example, 
+    example,
+    idx,
     tokenizer, 
     dic=None, 
     top=100, 
@@ -21,6 +22,7 @@ def map_fn(
     mass_key='mass',
     name_key='name',
 ):
+    example['iloc'] = idx
     ab = example[ab_key]
     ab_sort = (-ab).argsort()[:top]
     spectrum_length = len(ab_sort)
@@ -41,7 +43,7 @@ def map_fn(
     example['charge'] = example[charge_key]
     example['mass'] = example[mass_key]
     example['spectrum_length'] = spectrum_length
-    example['name'] = example[name_key]
+    example['name'] = f"{example[name_key]}|{example['scan']}"
     if tokenizer is not None:
         tokenized_sequence = tokenizer(example['modified_sequence'])
         peptide_length = len(tokenized_sequence)
@@ -53,6 +55,7 @@ def map_fn(
 
 def collate_fn(batch_list):
     name = np.array([m['name'] for m in batch_list])
+    iloc = np.array([m['iloc'] for m in batch_list])
     speclen = np.stack([m['spectrum_length'] for m in batch_list])
     mz      = np.stack([m['mz'][:speclen.max()] for m in batch_list])
     ab      = np.stack([m['ab'][:speclen.max()] for m in batch_list])
@@ -64,6 +67,7 @@ def collate_fn(batch_list):
 
     out = {
         'name': name,
+        'iloc': iloc,
         'mz': th.tensor(mz, dtype=th.float32),
         'ab': th.tensor(ab, dtype=th.float32),
         'charge': th.tensor(charge, dtype=th.int32),
@@ -139,7 +143,7 @@ class LoaderHF:
         dataset = load_dataset(
             'parquet',
             data_files=data_files,
-            streaming=True
+            streaming=True,
         ).with_format("numpy")
         #dataset['test'] = dataset['val']
         
@@ -164,20 +168,22 @@ class LoaderHF:
             ab_key = 'ab'
             charge_key = 'charge'
             mass_key = 'mass'
+        lambda_function = lambda example, idx: map_fn(
+            example,
+            idx,
+            tokenizer=self.tokenizer,
+            dic=self.amod_dic,
+            top=top_pks, 
+            max_seq=max_seq,
+            mz_key=mz_key,
+            ab_key=ab_key,
+            charge_key=charge_key,
+            mass_key=mass_key,
+            name_key=name_key,
+        )
         dataset = dataset.map(
-            lambda example: 
-            map_fn(
-                example,
-                tokenizer=self.tokenizer,
-                dic=self.amod_dic,
-                top=top_pks, 
-                max_seq=max_seq,
-                mz_key=mz_key,
-                ab_key=ab_key,
-                charge_key=charge_key,
-                mass_key=mass_key,
-                name_key=name_key,
-            ), 
+            lambda_function,
+            with_indices=True, 
             remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
         """

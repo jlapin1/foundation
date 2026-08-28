@@ -19,16 +19,22 @@ tasks:
 downstream:
   #- denovo_ar
 first_report:
-  execute: False
+  execute: True
   only_dnv: False
-steps_per_report: 150000
+steps_per_report: 300000
+nn_eval:
+  execute: True
+  top_n: 10
+  pooling: mean
+  metric: cosine
+  query_batch_size: 2048
 
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
 loadpath:
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
