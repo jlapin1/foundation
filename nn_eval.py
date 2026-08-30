@@ -19,6 +19,7 @@ import torch as th
 import pyarrow as pa
 import pyarrow.parquet as pq
 from tqdm import tqdm
+import pandas as pd
 
 F = th.nn.functional
 
@@ -103,8 +104,8 @@ def nearest_neighbors_to_parquet(
         ('neighbor_iloc', pa.int32()),
         ('score', pa.float32()),
     ]).with_metadata({'metric': metric})
-
-    writer = pq.ParquetWriter(output_path, schema)
+    
+    schema_defined=False
     try:
         for start in range(0, N, query_batch_size):
             end = min(start + query_batch_size, N)
@@ -127,14 +128,25 @@ def nearest_neighbors_to_parquet(
             top_scores = top_scores.cpu().numpy().reshape(-1).astype(np.float32)
             top_idx = top_idx.cpu().numpy().reshape(-1)
             n_rows = end - start
-
-            table = pa.table({
-                'query_id': np.repeat(ids[start:end], eff_top_n).astype(str),
-                'rank': np.tile(np.arange(1, eff_top_n + 1, dtype=np.int32), n_rows),
-                'neighbor_id': ids[top_idx].astype(str),
-                'neighbor_iloc': ilocs[top_idx],
-                'score': top_scores,
-            }, schema=schema)
+            
+            #table = pa.table({
+            #    'query_id': np.repeat(ids[start:end], eff_top_n).astype(str),
+            #    'rank': np.tile(np.arange(1, eff_top_n + 1, dtype=np.int32), n_rows),
+            #    'neighbor_id': ids[top_idx].astype(str),
+            #    'neighbor_iloc': ilocs[top_idx],
+            #    'score': top_scores,
+            #}, schema=schema)
+            df = pd.DataFrame({
+                'query_id': ids[start:end],
+                'query_iloc': ilocs[start:end],
+                'neighbor_id': ids[top_idx].reshape(-1, eff_top_n).tolist(), 
+                'neighbor_iloc': ilocs[top_idx].reshape(-1, eff_top_n).tolist(), 
+                'score': top_scores.reshape(-1, eff_top_n).tolist()
+            })
+            table = pa.Table.from_pandas(df, preserve_index=False)
+            if not schema_defined:
+                schema_defined = True
+                writer = pq.ParquetWriter(output_path, table.schema, compression='snappy')
             writer.write_table(table)
     finally:
         writer.close()

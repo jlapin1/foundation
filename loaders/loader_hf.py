@@ -9,6 +9,24 @@ import sys
 import pandas as pd
 import numpy as np
 
+def partition_modified_sequence(sequence):
+    
+    # Split apart letter+number from continuous letters
+    #   [A-Z]{0,1}: 0 or 1 letters to start the sequence
+    #   [+-]?: one or none of + or -
+    #   [0-9]*: any amount of digits 0-9
+    #   [.]?: any amount of periods
+    #   [0-9]+: 1 to any amount of digits 0-9
+    split = re.split("([A-Z]{0,1}[+-]?[0-9]*[.]?[0-9]+)", sequence)
+    
+    # Split (unmodified) strings into characters, and remove ['']
+    list_of_lists = [[x] if re.search("[+-]", x) else list(x) for x in split if x != '']
+    
+    # Flatten
+    tokenized_sequence = [m for n in list_of_lists for m in n]
+    
+    return tokenized_sequence
+
 def map_fn(
     example,
     idx,
@@ -44,12 +62,12 @@ def map_fn(
     example['mass'] = example[mass_key]
     example['spectrum_length'] = spectrum_length
     example['name'] = f"{example[name_key]}|{example['scan']}"
-    if tokenizer is not None:
+    if tokenizer is not None and 'modified_sequence' in example:
         tokenized_sequence = tokenizer(example['modified_sequence'])
         peptide_length = len(tokenized_sequence)
-        example['tokenized_sequence'] = th.tensor([dic[m] for m in tokenized_sequence] + (max_seq-peptide_length)*[dic['X']], dtype=th.int32)
+        #example['tokenized_sequence'] = th.tensor([dic[m] for m in tokenized_sequence] + (max_seq-peptide_length)*[dic['X']], dtype=th.int32)
         example['peptide_length'] = th.tensor(peptide_length, dtype=th.int32)
-        example['spectrum_length'] = th.tensor(spectrum_length, dtype=th.int32)
+        #example['spectrum_length'] = th.tensor(spectrum_length, dtype=th.int32)
 
     return example
 
@@ -62,8 +80,8 @@ def collate_fn(batch_list):
     charge  = np.stack([m['charge'] for m in batch_list])
     mass    = np.stack([m['mass'] for m in batch_list])
     if 'peptide_length' in batch_list[0]:
-        peplen = th.stack([m['peptide_length'] for m in batch_list])
-        intseq = th.stack([m['tokenized_sequence'][:peplen.max()] for m in batch_list])
+        peplen = np.array([m['peptide_length'].item() for m in batch_list])
+        modseq = np.array([m['modified_sequence'] for m in batch_list])
 
     out = {
         'name': name,
@@ -79,7 +97,7 @@ def collate_fn(batch_list):
     }
     if 'peptide_length' in batch_list[0]:
         out['peplen'] = peplen
-        out['intseq'] = intseq
+        out['modified_sequence'] = modseq
     
     return out
 
@@ -145,14 +163,17 @@ class LoaderHF:
             data_files=data_files,
             streaming=True,
         ).with_format("numpy")
-        #dataset['test'] = dataset['val']
-        
+        dataset_val = load_dataset(
+            'parquet',
+            data_files=data_files['val'],
+            streaming=True,
+        ).with_format("numpy")
+
         # Tokenizer
         """tokenizer_path = dataset_path if tokenizer_path==None else tokenizer_path
         sys.path.append(tokenizer_path)
-        from enumerate_tokens import partition_modified_sequence
-        self.tokenizer = partition_modified_sequence"""
-        self.tokenizer = None
+        from enumerate_tokens import partition_modified_sequence"""
+        self.tokenizer = partition_modified_sequence
         self.amod_dic = None
         max_seq = None
 
@@ -184,6 +205,24 @@ class LoaderHF:
         dataset = dataset.map(
             lambda_function,
             with_indices=True, 
+            remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
+        )
+        lambda_function = lambda example, idx: map_fn(
+            example,
+            idx,
+            tokenizer=self.tokenizer,
+            dic=self.amod_dic,
+            top=top_pks, 
+            max_seq=max_seq,
+            mz_key='mz_array',
+            ab_key='intensity_array',
+            charge_key='precursor_charge',
+            mass_key='precursor_mass',
+            name_key='raw_file',
+        )
+        dataset_val = dataset_val.map(
+            lambda_function,
+            with_indices=True,
             remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
         """
@@ -224,7 +263,7 @@ class LoaderHF:
         num_workers = min(self.dataset['train'].n_shards, num_workers)
         self.dataloader = {
             'train': self.build_dataloader(dataset['train'], batch_size, num_workers),
-            'val':   self.build_dataloader(dataset['val']  , batch_size, 0),
+            'val':   self.build_dataloader(dataset_val['train']  , batch_size, 0),
         }
         if 'test' in dataset:
             self.dataloader['test'] = self.build_dataloader(dataset['test'], batch_size, 0)

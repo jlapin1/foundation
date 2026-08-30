@@ -358,11 +358,12 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
 
     # First report
     if config['first_report']['execute'] | config['first_report']['only_dnv']:
-        #eval_out = denovo_base_eval(encoder)
-        #if config['first_report']['only_dnv']: sys.exit()
-        #eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
-        if config['log_wandb']:
-            wandb.log({'global_step': encoder.global_step.item()} | eval_out)
+        if config['dnv_eval']['execute']:
+            eval_out = denovo_base_eval(encoder)
+            if config['first_report']['only_dnv']: sys.exit()
+            eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
+            if config['log_wandb']:
+                wandb.log({'global_step': encoder.global_step.item()} | eval_out)
         if config['nn_eval']['execute'] and 'val' in L.dataloader:
             nearest_neighbor_eval(encoder, svdir=svdir)
 
@@ -432,12 +433,13 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
 
             # Run evaluation and save training_loss
             if encoder.global_step % config['steps_per_report'] == 0:
-                eval_out = denovo_base_eval(encoder)
-                eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
-                sys.stdout.write(f"\rEvaluation @ Global step={encoder.global_step.item()}: aa={eval_out['aa_recall']}, peptide={eval_out['peptide']}\n")
-                if config['log_wandb']:
-                    wandb.log({'global_step': encoder.global_step.item()} | eval_out)
-                if config['nn_eval']['execute'] and 'test' in L.dataloader:
+                if config['dnv_eval']['execute']:
+                    eval_out = denovo_base_eval(encoder)
+                    eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
+                    sys.stdout.write(f"\rEvaluation @ Global step={encoder.global_step.item()}: aa={eval_out['aa_recall']}, peptide={eval_out['peptide']}\n")
+                    if config['log_wandb']:
+                        wandb.log({'global_step': encoder.global_step.item()} | eval_out)
+                if config['nn_eval']['execute']:
                     nn_path = nearest_neighbor_eval(encoder, svdir=svdir)
                     sys.stdout.write(f"\rWrote nearest-neighbor eval to {nn_path}\n")
                 loss_list = []

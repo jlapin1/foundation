@@ -10,7 +10,7 @@ tasks:
   #- nary_ab
   #- hidden_mz
   #- hidden_ab
-  #- hidden_spectrum
+  - hidden_spectrum
   #- hidden_charge
   #- hidden_mass
   #- mass_competition
@@ -21,7 +21,9 @@ downstream:
 first_report:
   execute: True
   only_dnv: False
-steps_per_report: 300000
+steps_per_report: 10000
+dnv_eval:
+  execute: False
 nn_eval:
   execute: True
   top_n: 10
@@ -29,12 +31,12 @@ nn_eval:
   metric: cosine
   query_batch_size: 2048
 
-log_wandb: False
+log_wandb: True
 wandb_project: foundation
 wandb_entity: joellapin
 
 loadpath:
-svwts: False
+svwts: True
 svfreq: 1800
 svgrad: False
 debug: False
