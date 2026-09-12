@@ -78,19 +78,27 @@ class NaryTask(Task):
         # MODEL INPUT: Corrupt mz
         mzab = deepcopy(batch[self.typ])
         
-        # Random sequence indices to change
-        inds_boolean = th.empty(mzab.shape, device=dev).uniform_(0, 1) < freq
-        inds = th.cat(th.where(inds_boolean)).reshape(2, -1).T
+        # Boolean array where first freq*speclength values are True and the rest are False
+        # - Turn it into where indices
+        num_of_cols = (batch['length']*freq).int().clamp(0, mzab.shape[1])
+        where = th.where(th.arange(mzab.shape[1], device=device)[None] < num_of_cols[:,None])
+
+        # Sample from beta distributions based on intensities
+        # - higher concentration0 shifts balance towards higher intensities, ~0 is uniform
+        random = 1 - th.distributions.Beta(concentration1=batch['ab'].clamp(1e-5, 1), concentration0=1.0).sample()
+        # Get the column indices of the lowest random numbers
+        dim1 = random.argsort(-1)[where]
+        inds = (where[0], dim1)
+        indsvec = th.cat([where[0][:,None], dim1[:,None]], dim=1)
         
-        # Get their mz values
-        means = mzab[inds_boolean]
-        
+        means = mzab[inds]
+
         # Generate normal distributions for inds, centered on original value
         updates = th.normal(means, std)
         updates = self.clip_op(updates)
         
         # Distribute updates into corrupted indices
-        mzab[inds_boolean] = updates
+        mzab[inds] = updates
         if self.typ == 'mz':
             mzab_inp = th.cat([mzab[...,None], batch['ab'][...,None]], -1)
         elif self.typ == 'ab':
@@ -106,7 +114,7 @@ class NaryTask(Task):
         target = th.zeros(mzab.shape, dtype=th.int64, device=dev)
         buckets = th.bucketize(updates-means, self.bucket_bins)+1
         for m in range(buckets.min(), buckets.max()+1, 1):
-            target[inds[buckets==m].split(1,1)] = m
+            target[indsvec[buckets==m].split(1,1)] = m
         self.target = F.one_hot(target, self.buckets).type(th.float32)
         
         return inp

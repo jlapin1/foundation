@@ -225,6 +225,12 @@ class LoaderHF:
             with_indices=True,
             remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
+        
+        # Filter for id'ed or unid'ed spectra
+        #dataset = dataset.filter(
+        #    lambda example:
+        #    example['observed_mz'] != -1
+        #)
         """
         # Filter for length
         if 'pep_length' in kwargs.keys():
