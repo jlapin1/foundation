@@ -101,13 +101,6 @@ def collate_fn(batch_list):
     
     return out
 
-exceptions = {
-    'C(+57.02)': 'C+57.021',
-    'M(+15.99)': 'M+15.995',
-    'N(+.98)': 'N+0.984',
-    'Q(+.98)': 'Q+0.984',
-}
-
 class LoaderHF:
     def __init__(self, 
         dataset_path: str,
@@ -155,20 +148,7 @@ class LoaderHF:
             self.train_size = int(species_sizes.query(f"species != '{val_species}'")['count'].sum())
         else:
             None"""
-
-        # Dataset
-        data_files = {m:n for m, n in dataset_path.items() if n!=None}
-        dataset = load_dataset(
-            'parquet',
-            data_files=data_files,
-            streaming=True,
-        ).with_format("numpy")
-        dataset_val = load_dataset(
-            'parquet',
-            data_files=data_files['val'],
-            streaming=True,
-        ).with_format("numpy")
-
+        
         # Tokenizer
         """tokenizer_path = dataset_path if tokenizer_path==None else tokenizer_path
         sys.path.append(tokenizer_path)
@@ -176,52 +156,35 @@ class LoaderHF:
         self.tokenizer = partition_modified_sequence
         self.amod_dic = None
         max_seq = None
-
+        
+        # Training Dataset
+        data_files = {m:n for m, n in dataset_path.items() if n!=None}
+        dataset = load_dataset(
+            'parquet',
+            data_files=data_files,
+            streaming=True,
+        ).with_format("numpy")
+        
         # Map to format outputs
-        if 'custom' in kwargs:
-            mz_key = kwargs['custom']['mz_key']
-            ab_key = kwargs['custom']['ab_key']
-            charge_key = kwargs['custom']['charge_key']
-            mass_key = kwargs['custom']['mass_key']
-            name_key = kwargs['custom']['name_key']
-        else:
-            mz_key = 'mz'
-            ab_key = 'ab'
-            charge_key = 'charge'
-            mass_key = 'mass'
-        lambda_function = lambda example, idx: map_fn(
-            example,
-            idx,
-            tokenizer=self.tokenizer,
-            dic=self.amod_dic,
-            top=top_pks, 
-            max_seq=max_seq,
-            mz_key=mz_key,
-            ab_key=ab_key,
-            charge_key=charge_key,
-            mass_key=mass_key,
-            name_key=name_key,
-        )
+        base = os.path.split(data_files['train'])[0]
+        lambda_function_train = self.create_lambda_function(base, self.tokenizer, self.amod_dic, top_pks, max_seq)
         dataset = dataset.map(
-            lambda_function,
+            lambda_function_train,
             with_indices=True, 
             remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
-        lambda_function = lambda example, idx: map_fn(
-            example,
-            idx,
-            tokenizer=self.tokenizer,
-            dic=self.amod_dic,
-            top=top_pks, 
-            max_seq=max_seq,
-            mz_key='mz_array',
-            ab_key='intensity_array',
-            charge_key='precursor_charge',
-            mass_key='precursor_mass',
-            name_key='raw_file',
-        )
+
+        # NNeval dataset
+        dataset_val = load_dataset(
+            'parquet',
+            data_files=data_files['val'],
+            streaming=True,
+        ).with_format("numpy")
+        
+        base = os.path.split(data_files['val'])[0]
+        lambda_function_val = self.create_lambda_function(base, None, None, top_pks, None)
         dataset_val = dataset_val.map(
-            lambda_function,
+            lambda_function_val,
             with_indices=True,
             remove_columns=kwargs['remove_columns'] if 'remove_columns' in kwargs else None,
         )
@@ -282,4 +245,21 @@ class LoaderHF:
             collate_fn=collate_fn,
             persistent_workers=False
         )
-
+    
+    def create_lambda_function(self, base_file_path, tokenizer, dictionary, top_peaks, max_sequence):
+        
+        keys = pd.read_csv(os.path.join(base_file_path, 'keys.tsv'), sep='\t', header=None).set_index(0)
+        lambda_function = lambda example, idx: map_fn(
+            example,
+            idx,
+            tokenizer=tokenizer,
+            dic=dictionary,
+            top=top_peaks,
+            max_seq=max_sequence,
+            mz_key=keys.loc['mz_key'].item(),
+            ab_key=keys.loc['ab_key'].item(),
+            charge_key=keys.loc['charge_key'].item(),
+            mass_key=keys.loc['mass_key'].item(),
+            name_key=keys.loc['name_key'].item(),
+        )
+        return lambda_function

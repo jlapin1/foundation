@@ -48,7 +48,7 @@ def compute_embeddings(encoder, dataobj, device, pooling='mean'):
     """
     was_training = encoder.training
     encoder.eval()
-    embeddings, ids, ilocs = [], [], []
+    embeddings, ids, ilocs, uniqs = [], [], [], []
     pbar = tqdm(dataobj.dataloader['val'], leave=False)
     pbar.set_description("Validation")
     with th.no_grad():
@@ -65,14 +65,15 @@ def compute_embeddings(encoder, dataobj, device, pooling='mean'):
             embeddings.append(pooled.cpu())
             ids.append(np.asarray(batch['name']))
             ilocs.append(batch['iloc'])
+            uniqs.extend([f"{m}_{n}" for m,n in zip(batch['modified_sequence'], batch['charge'])])
     if was_training:
         encoder.train()
 
-    return th.cat(embeddings, dim=0), np.concatenate(ids), np.concatenate(ilocs)
+    return th.cat(embeddings, dim=0), np.concatenate(ids), np.concatenate(ilocs), np.array(uniqs)
 
 
 def nearest_neighbors_to_parquet(
-    embeddings, ids, ilocs, output_path,
+    embeddings, ids, ilocs, uniqs, output_path,
     top_n=10, metric='cosine', query_batch_size=2048,
     exclude_self=True, device=None,
 ):
@@ -100,8 +101,10 @@ def nearest_neighbors_to_parquet(
     schema = pa.schema([
         ('query_id', pa.string()),
         ('rank', pa.int32()),
+        ('query_uniq', pa.string()),
         ('neighbor_id', pa.string()),
         ('neighbor_iloc', pa.int32()),
+        ('neighbor_uniq', pa.string()),
         ('score', pa.float32()),
     ]).with_metadata({'metric': metric})
     
@@ -139,8 +142,10 @@ def nearest_neighbors_to_parquet(
             df = pd.DataFrame({
                 'query_id': ids[start:end],
                 'query_iloc': ilocs[start:end],
-                'neighbor_id': ids[top_idx].reshape(-1, eff_top_n).tolist(), 
-                'neighbor_iloc': ilocs[top_idx].reshape(-1, eff_top_n).tolist(), 
+                'query_uniq': uniqs[start:end],
+                'neighbor_id': ids[top_idx].reshape(-1, eff_top_n).tolist(),
+                'neighbor_iloc': ilocs[top_idx].reshape(-1, eff_top_n).tolist(),
+                'neighbor_uniq': uniqs[top_idx].reshape(-1, eff_top_n).tolist(),
                 'score': top_scores.reshape(-1, eff_top_n).tolist()
             })
             table = pa.Table.from_pandas(df, preserve_index=False)
@@ -162,10 +167,10 @@ def evaluate_similarity(
     top-n nearest neighbors to `output_path` (parquet).
     """
     encode_device = encode_device or next(encoder.parameters()).device
-    embeddings, ids, ilocs = compute_embeddings(encoder, dataobj, encode_device, pooling=pooling)
+    embeddings, ids, ilocs, uniqs = compute_embeddings(encoder, dataobj, encode_device, pooling=pooling)
 
     nearest_neighbors_to_parquet(
-        embeddings, ids, ilocs, output_path,
+        embeddings, ids, ilocs, uniqs, output_path,
         top_n=top_n, metric=metric, query_batch_size=query_batch_size,
         exclude_self=exclude_self, device=search_device or encode_device,
     )

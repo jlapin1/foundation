@@ -10,7 +10,7 @@ tasks:
   #- nary_ab
   #- hidden_mz
   #- hidden_ab
-  - hidden_spectrum
+  #- hidden_spectrum
   #- hidden_charge
   #- hidden_mass
   #- mass_competition
