@@ -13,7 +13,7 @@ import utils as U
 import re
 import wandb
 from tqdm import tqdm
-Adam = th.optim.Adam
+from glob import glob
 import multiprocessing
 multiprocessing.set_start_method('fork') # python 3.14 compatibility with dataloader
 # slurm doesn't always manage gpus well -> cublas error
@@ -75,11 +75,15 @@ dnconfig['top_peaks'] = config['max_peaks']
 dnconfig['batch_size'] = config['batch_size']
 dnconfig['epochs'] = dsconfig['epochs']
 print(f"Denovo runs will last {dnconfig['epochs']} epochs")
-dnconfig['save_weights'] = False
-dnconfig['log_wandb'] = True if config['first_report']['only_dnv'] else False
 dnconfig['prev_wts'] = None
 dnconfig['pretrained_encoder_path'] = None # loading encoder inside denovo base
 dnconfig['loader']['val_name'] = dsconfig['loader']['val_species']
+dnconfig['freeze_encoder'] = dsconfig['freeze_encoder']
+dnconfig['save_weights'] = True if config['first_report']['only_dnv'] and config['svwts'] else False
+dnconfig['log_wandb'] = True if config['first_report']['only_dnv'] else False
+dnconfig['prev_wts'] = config['first_report']['loadpath'] if config['first_report']['only_dnv'] else None
+for key in dsconfig:
+    if 'lr_' in key: dnconfig[key] = dsconfig[key]
 
 ################################################################################
 #                                  Loader                                      #
@@ -134,7 +138,7 @@ assert hasattr(header, 'name')
 
 # Optimizers
 lr_phase_count = [0,0]
-optencoder = Adam(encoder.parameters(), 1e-7)
+optencoder = th.optim.Adam(encoder.parameters(), 1e-7)
 
 if config['loadpath'] is not None:
     print("Loading previous experiment: ", end="")
@@ -245,7 +249,7 @@ def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
 
 import nn_eval
 
-def nearest_neighbor_eval(encoder, svdir='./', dset='val'):
+def nearest_neighbor_eval(encoder, svdir='./', dset='val', write_every=False):
     """
     Encode the held-out test set with `encoder`'s current weights and, for
     each spectrum, write its top-n nearest neighbors (by pooled embedding
@@ -254,13 +258,16 @@ def nearest_neighbor_eval(encoder, svdir='./', dset='val'):
     cfg = config['nn_eval']
     outdir = os.path.join(svdir, 'nn_eval')
     os.makedirs(outdir, exist_ok=True)
+    if not write_every:
+        for file in glob(os.path.join(outdir, "*.parquet")): os.remove(file)
     output_path = os.path.join(outdir, "step_%d.parquet" % encoder.global_step.item())
 
-    nn_eval.evaluate_similarity(
+    out = nn_eval.evaluate_similarity(
         encoder, L, output_path,
         top_n=cfg['top_n'], pooling=cfg['pooling'], metric=cfg['metric'],
         query_batch_size=cfg['query_batch_size'],
     )
+    if config['log_wandb']: wandb.log({'nn_frac': np.mean(out)})
 
     return output_path
 

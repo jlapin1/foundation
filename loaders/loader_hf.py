@@ -79,9 +79,12 @@ def collate_fn(batch_list):
     ab      = np.stack([m['ab'][:speclen.max()] for m in batch_list])
     charge  = np.stack([m['charge'] for m in batch_list])
     mass    = np.stack([m['mass'] for m in batch_list])
+    
     if 'peptide_length' in batch_list[0]:
         peplen = np.array([m['peptide_length'].item() for m in batch_list])
         modseq = np.array([m['modified_sequence'] for m in batch_list])
+    if 'replicate_counts' in batch_list[0]:
+        replicates = np.array([m['replicate_counts'].item() for m in batch_list]).astype(np.int32)
 
     out = {
         'name': name,
@@ -98,6 +101,8 @@ def collate_fn(batch_list):
     if 'peptide_length' in batch_list[0]:
         out['peplen'] = peplen
         out['modified_sequence'] = modseq
+    if 'replicate_counts' in batch_list[0]:
+        out['replicate_counts'] = replicates
     
     return out
 

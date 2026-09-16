@@ -24,6 +24,13 @@ import pandas as pd
 F = th.nn.functional
 
 
+def FracTopNdf(row, n=None):
+    if n==None:
+        n = len(row['neighbor_uniq'])
+    rc = row['replicate_counts']
+    denominator = rc if rc <= n else n
+    return sum(row['query_uniq'] == np.array(row['neighbor_uniq'])) / denominator
+
 def _masked_pool(emb, length, mode='mean'):
     bs, sl, _ = emb.shape
     idx = th.arange(sl, device=emb.device)[None, :]
@@ -48,7 +55,7 @@ def compute_embeddings(encoder, dataobj, device, pooling='mean'):
     """
     was_training = encoder.training
     encoder.eval()
-    embeddings, ids, ilocs, uniqs = [], [], [], []
+    embeddings, ids, ilocs, uniqs, rc = [], [], [], [], []
     pbar = tqdm(dataobj.dataloader['val'], leave=False)
     pbar.set_description("Validation")
     with th.no_grad():
@@ -66,14 +73,15 @@ def compute_embeddings(encoder, dataobj, device, pooling='mean'):
             ids.append(np.asarray(batch['name']))
             ilocs.append(batch['iloc'])
             uniqs.extend([f"{m}_{n}" for m,n in zip(batch['modified_sequence'], batch['charge'])])
+            rc.append(batch['replicate_counts'])
     if was_training:
         encoder.train()
 
-    return th.cat(embeddings, dim=0), np.concatenate(ids), np.concatenate(ilocs), np.array(uniqs)
+    return th.cat(embeddings, dim=0), np.concatenate(ids), np.concatenate(ilocs), np.array(uniqs), np.concatenate(rc)
 
 
 def nearest_neighbors_to_parquet(
-    embeddings, ids, ilocs, uniqs, output_path,
+    embeddings, ids, ilocs, uniqs, replicates, output_path,
     top_n=10, metric='cosine', query_batch_size=2048,
     exclude_self=True, device=None,
 ):
@@ -108,6 +116,7 @@ def nearest_neighbors_to_parquet(
         ('score', pa.float32()),
     ]).with_metadata({'metric': metric})
     
+    topn = []
     schema_defined=False
     try:
         for start in range(0, N, query_batch_size):
@@ -143,11 +152,13 @@ def nearest_neighbors_to_parquet(
                 'query_id': ids[start:end],
                 'query_iloc': ilocs[start:end],
                 'query_uniq': uniqs[start:end],
+                'replicate_counts': replicates[start:end],
                 'neighbor_id': ids[top_idx].reshape(-1, eff_top_n).tolist(),
                 'neighbor_iloc': ilocs[top_idx].reshape(-1, eff_top_n).tolist(),
                 'neighbor_uniq': uniqs[top_idx].reshape(-1, eff_top_n).tolist(),
                 'score': top_scores.reshape(-1, eff_top_n).tolist()
             })
+            topn.extend(df.apply(FracTopNdf, axis=1).tolist())
             table = pa.Table.from_pandas(df, preserve_index=False)
             if not schema_defined:
                 schema_defined = True
@@ -155,6 +166,8 @@ def nearest_neighbors_to_parquet(
             writer.write_table(table)
     finally:
         writer.close()
+
+    return topn
 
 
 def evaluate_similarity(
@@ -167,10 +180,10 @@ def evaluate_similarity(
     top-n nearest neighbors to `output_path` (parquet).
     """
     encode_device = encode_device or next(encoder.parameters()).device
-    embeddings, ids, ilocs, uniqs = compute_embeddings(encoder, dataobj, encode_device, pooling=pooling)
+    embeddings, ids, ilocs, uniqs, replicates = compute_embeddings(encoder, dataobj, encode_device, pooling=pooling)
 
-    nearest_neighbors_to_parquet(
-        embeddings, ids, ilocs, uniqs, output_path,
+    return nearest_neighbors_to_parquet(
+        embeddings, ids, ilocs, uniqs, replicates, output_path,
         top_n=top_n, metric=metric, query_batch_size=query_batch_size,
         exclude_self=exclude_self, device=search_device or encode_device,
     )
