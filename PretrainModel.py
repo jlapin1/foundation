@@ -369,7 +369,7 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
     # First report
     if config['first_report']['pretrain_execute'] | config['first_report']['only_dnv']:
         if config['dnv_eval']['execute'] | config['first_report']['only_dnv']:
-            eval_out = denovo_base_eval(encoder)
+            eval_out = denovo_base_eval(encoder, svdir=svdir)
             if config['first_report']['only_dnv']: sys.exit()
             eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))
             if config['log_wandb']:

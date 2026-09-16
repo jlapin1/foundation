@@ -20,8 +20,8 @@ downstream:
   #- denovo_ar
 first_report:
   pretrain_execute: True
-  only_dnv: False
-  loadpath:
+  only_dnv: True
+  loadpath: # For continuing from previous denovo run
 steps_per_report: 10000
 dnv_eval:
   execute: False
@@ -36,8 +36,8 @@ log_wandb: True
 wandb_project: foundation
 wandb_entity: joellapin
 
-loadpath:
-svwts: True
+loadpath: save/2026-09-14_17-53-17
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False
