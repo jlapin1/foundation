@@ -3,7 +3,7 @@
 #pretrain_path: # if starting with a pretrained encoder
 #dswts: # Load weights from previous downstream run (project path->timestamp)
 #load_last: False
-epochs: 40
+epochs: 1
 #steps_per_epoch: 10000
 #train_encoder: True
 #encoder_start: 0
@@ -14,16 +14,16 @@ epochs: 40
 ##################
 ## Learning rate #
 ##################
-#lr_schedule: True
-## Phase 1 - Warmup
-#lr_warmup_start: 1.0e-7
-#lr_warmup_end: 1.e-4 # phase 2 LR
-#lr_warmup_steps: 1000
-## Phase 2 - Flat
-#lr_flat_steps: 0 #266000
-## Phase 3 - Decay
-#lr_floor: 1.0e-5
-#lr_decay_steps: 1000000 # 1000000
+lr_schedule: True
+# Phase 1 - Warmup
+lr_warmup_start: 1.0e-7
+lr_warmup_end: 2.e-4 # phase 2 LR
+lr_warmup_steps: 1000
+# Phase 2 - Flat
+lr_flat_steps: 0 #266000
+# Phase 3 - Decay
+lr_floor: 1.0e-5
+lr_decay_steps: 1000000 # 1000000
 
 # Loader options
 loader:
@@ -49,7 +49,7 @@ loader:
   #  path: /media/storage/scratch/ninespecies/
 
 ## Downstream task specific options
-freeze_encoder: False
+freeze_encoder: True
 #denovo_type: diff # *diff* | *
 #denovo_ar:
 #  head_dict:

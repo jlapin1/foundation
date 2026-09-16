@@ -82,7 +82,8 @@ dnconfig['freeze_encoder'] = dsconfig['freeze_encoder']
 dnconfig['save_weights'] = True if config['first_report']['only_dnv'] and config['svwts'] else False
 dnconfig['log_wandb'] = True if config['first_report']['only_dnv'] else False
 dnconfig['prev_wts'] = config['first_report']['loadpath'] if config['first_report']['only_dnv'] else None
-
+for key in dsconfig:
+    if 'lr_' in key: dnconfig[key] = dsconfig[key]
 
 ################################################################################
 #                                  Loader                                      #
