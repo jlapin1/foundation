@@ -166,7 +166,7 @@ if config['loadpath'] is not None:
         except:
             print(f"Weights for {task} task not found")
 
-    save_path = config['loadpath']
+    save_path = config['loadpath'] if dnconfig['save_weights']==False else None
 else:
     save_path = None
 
@@ -222,8 +222,9 @@ def denovo_base_eval(encoder, svdir='./denovo_eval/', freeze_encoder=True):
     sys.path.insert(0, denovo_base_dir)
     try:
         model_runners = importlib.import_module("denovo_base.models.model_runners")
-        dnconfig['freeze_encoder'] = freeze_encoder
-        DS = model_runners.DenovoArObj(dnconfig, svdir=svdir, rddir=None, encoder_model=encoder)
+        dnconfig['freeze_encoder'] = dnconfig['freeze_encoder']#freeze_encoder
+        rddir = svdir if dnconfig['prev_wts'] else None
+        DS = model_runners.DenovoArObj(dnconfig, svdir=svdir, rddir=rddir, encoder_model=encoder)
         # Insert a snapshot of the current encoder's weights (a copy, so this
         # evaluation can't perturb the encoder actually being pretrained)
         DS.model.encoder.load_state_dict(encoder.state_dict())
@@ -329,7 +330,9 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
     
     # Create experiment directory in save/
     timestamp = U.timestamp()
-    if swt:
+    if config['first_report']['only_dnv'] & (config['first_report']['loadpath']!=None):
+        svdir = config['first_report']['loadpath']
+    elif swt:
         if save_path is None:
             svdir = 'save/' + timestamp
             U.create_experiment(svdir, svwts=config['svwts'])
@@ -364,8 +367,8 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
     sys.stdout.write("Starting training for %d epochs\n"%epochs)
 
     # First report
-    if config['first_report']['execute'] | config['first_report']['only_dnv']:
-        if config['dnv_eval']['execute']:
+    if config['first_report']['pretrain_execute'] | config['first_report']['only_dnv']:
+        if config['dnv_eval']['execute'] | config['first_report']['only_dnv']:
             eval_out = denovo_base_eval(encoder)
             if config['first_report']['only_dnv']: sys.exit()
             eval_out = dict(zip(['aa_recall', 'peptide'], map(eval_out.get, ['aa_recall', 'peptide'])))

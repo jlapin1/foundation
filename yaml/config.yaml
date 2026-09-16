@@ -19,8 +19,9 @@ tasks:
 downstream:
   #- denovo_ar
 first_report:
-  execute: True
+  pretrain_execute: True
   only_dnv: False
+  loadpath:
 steps_per_report: 10000
 dnv_eval:
   execute: False
