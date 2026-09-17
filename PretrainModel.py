@@ -185,14 +185,6 @@ loss_spec = " ".join(['%s: %%7.5f'%task_name for task_name in T.keys()])
 #                           Downstream evaluation                              #
 ################################################################################
 
-if (config['downstream'] is not None) and (not config['debug']):
-    import downstream as ds
-
-    # Downstream object
-    allds = {
-        'denovo_ar': ds.DenovoArDSObj,
-    }
-
 ################################################################################
 #                    denovo_base evaluation (AR sequencing)                    #
 ################################################################################
