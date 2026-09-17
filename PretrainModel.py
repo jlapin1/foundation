@@ -52,17 +52,17 @@ config['lr'] = float(config['lr'])
 # Header model
 header_dict = mconf['header_dict']
 # Set -ary tasks prediction classes
-header_dict['tasks']['nary_mz']['num_classes'] = tc['nary_mz']['buckets']
-header_dict['tasks']['nary_ab']['num_classes'] = tc['nary_ab']['buckets']
-mzh = tc['hidden_mz']
-header_dict['tasks']['hidden_mz']['bins'] = int( 
-    (mzh['mzlims'][1] - mzh['mzlims'][0]) / mzh['binsz']
-) # hidden mz needs binsz and mz range apriori
-abh = tc['hidden_ab']
-header_dict['tasks']['hidden_ab']['bins'] = int(1 / abh['binsz']) # so does hidden ab
-header_dict['tasks']['hidden_spectrum']['bins'] = config['max_peaks']
+header_dict['tasks']['NaryTask']['num_classes'] = tc['NaryTask']['buckets']
+#header_dict['tasks']['nary_ab']['num_classes'] = tc['nary_ab']['buckets']
+#mzh = tc['hidden_mz']
+#header_dict['tasks']['hidden_mz']['bins'] = int( 
+#    (mzh['mzlims'][1] - mzh['mzlims'][0]) / mzh['binsz']
+#) # hidden mz needs binsz and mz range apriori
+#abh = tc['hidden_ab']
+#header_dict['tasks']['hidden_ab']['bins'] = int(1 / abh['binsz']) # so does hidden ab
+#header_dict['tasks']['hidden_spectrum']['bins'] = config['max_peaks']
 # hidden charge needs max charge to set the number of classes
-header_dict['tasks']['hidden_charge']['num_classes'] = tc['hidden_charge']['max_charge']
+#header_dict['tasks']['hidden_charge']['num_classes'] = tc['hidden_charge']['max_charge']
 header_dict = {task: header_dict['tasks'][task] for task in config['tasks']}
 # pass encoder_dict's running_units to header_dict as in_units
 header_dict['in_units'] = mconf['encoder_dict']['running_units']
@@ -174,11 +174,28 @@ else:
 #                                    Loss                                      #
 ################################################################################
 
-import tasks.tasks as tasks
+import tasks
+import importlib
+import inspect
+import pkgutil
+classes_dict = {}
+# Iterate over all modules inside the package directory
+for _, module_name, is_pkg in pkgutil.iter_modules(tasks.__path__):
+    if not is_pkg:
+        # Dynamically import the module
+        full_module_name = f"{tasks.__name__}.{module_name}"
+        module = importlib.import_module(full_module_name)
+        # Extract all classes defined directly within that module
+        for name, obj in inspect.getmembers(module, inspect.isclass):
+            if obj.__module__ == full_module_name:
+                classes_dict[name] = obj
+
+T = {}
+for task in config['tasks']:
+    T_ = classes_dict[task]
+    T[task] = T_(**tc[task])
 
 # All tasks have loss variables for tracking
-T = tasks.all_tasks(tc)
-T = {task: T[task] for task in config['tasks']}
 loss_spec = " ".join(['%s: %%7.5f'%task_name for task_name in T.keys()])
 
 ################################################################################
@@ -391,7 +408,7 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
             start_step = time()
             
             # Train model for a step
-            random_task = np.random.choice(list(header.heads.keys()), 1)[0]
+            random_task = np.random.choice(list(T.keys()), 1)[0]
             loss = train_step(
                 batch, random_task, optencoder, header.opts[random_task]
             )

@@ -210,9 +210,9 @@ class Header(nn.Module):
             dic = head_dic['nary_ab']
             self.heads['nary_ab'] = ClassifierHead(**dic, in_units=IU)
 
-        if 'nary_mz' in head_dic.keys():
-            dic = head_dic['nary_mz']
-            self.heads['nary_mz'] = ClassifierHead(**dic, in_units=IU)
+        if 'NaryTask' in head_dic.keys():
+            dic = head_dic['NaryTask']
+            self.heads['NaryTask'] = ClassifierHead(**dic, in_units=IU)
 
         if 'hidden_ab' in head_dic.keys():
             dic = head_dic['hidden_ab']
@@ -240,8 +240,8 @@ class Header(nn.Module):
             self.heads['mass_competition'] = PLClassifierHead(**dic, in_units=IU)
 
         if 'maldi' in head_dic.keys():
-            dic = head_dic['maldi']
-            self.heads['maldi'] = ClassifierHead(**dic, in_units=IU)
+            dic = head_dic['Maldi']
+            self.heads['Maldi'] = ClassifierHead(**dic, in_units=IU)
         
         if 'resid_regr' in head_dic.keys():
             dic = head_dic['resid_regr']

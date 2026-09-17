@@ -1,5 +1,5 @@
 # STARTED MIGRATION
-from collections import deque
+from .base_task import Task
 import numpy as np
 from utils import discretize_mz
 from copy import deepcopy
@@ -11,49 +11,6 @@ MzAbInp = lambda batch: th.cat(
     [batch['mz'][...,None], batch['ab'][...,None]],
     axis=-1
 )
-
-
-class Task:
-    def __init__(self, typ, maxlen=50):
-        assert typ.lower() in ['mz', 'ab', 'both', 'charge', 'mass']
-        self.typ = typ.lower()
-        self.maxlen = maxlen
-        self.running_loss = {'main': deque(maxlen=maxlen)}
-        self.total_loss = {'main': 0}
-        self.total_counter = 0
-    
-    def add_loss_key(self, key):
-        self.running_loss[key] = deque(maxlen=self.maxlen)
-        self.total_loss[key] = 0
-
-    def log_loss(self, nploss):
-        for key in self.running_loss.keys():
-            self.running_loss[key].append(nploss)
-            self.total_loss[key] += nploss
-        self.total_counter += 1
-
-    def calc_avg_total_loss(self):
-        outputs = {}
-        for key in self.total_loss.keys():
-            outputs[key] = self.total_loss[key] / (self.total_counter+1e-10)
-        
-        return outputs
-
-    def calc_avg_running_loss(self):
-        outputs = {}
-        for key in self.running_loss.keys():
-            outputs[key] = (
-                np.mean(self.running_loss[key]) 
-                if len(self.running_loss[key])>0 else 
-                0
-            )
-
-        return outputs
-
-    def reset_total_loss(self):
-        for key in self.total_loss.keys():
-            self.total_loss[key] = 0
-        self.total_counter = 0
 
 class NaryTask(Task):
     def __init__(self, typ, buckets=3, freq=0.15, stdev=5, clip_vals=None):
@@ -463,28 +420,4 @@ class ResidualRegression(Task):
         loss = (self.target - prediction).abs()
 
         return loss
-
-all_tasks = lambda tc: {
-    'nary_mz': NaryTask('mz', buckets=tc['nary_mz']['buckets'], stdev=tc['nary_mz']['stdev']),
-    'nary_ab': NaryTask('ab', buckets=tc['nary_ab']['buckets'], stdev=tc['nary_ab']['stdev'], clip_vals=[0., 1.]),
-    'hidden_mz': HiddenPeak(
-        'mz', loss_weight=tc['hidden_mz']['loss_weight'],
-        binsz=tc['hidden_mz']['binsz'], mzlims=tc['hidden_mz']['mzlims'],
-    ),
-    'hidden_ab': HiddenPeak(
-        'ab', loss_weight=tc['hidden_ab']['loss_weight'],
-        binsz=tc['hidden_ab']['binsz']
-    ),
-    'hidden_spectrum': HiddenAbSpectrum(
-        loss_weight=tc['hidden_spectrum']['loss_weight']
-    ),
-    'hidden_charge': HiddenCharge(
-        max_charge=tc['hidden_charge']['max_charge'],
-        loss_weight=tc['hidden_charge']['loss_weight']
-    ),
-    'hidden_mass': HiddenMass(loss_weight=tc['hidden_charge']['loss_weight']),
-    'mass_competition': MassCompetition(loss_weight=tc['mass_competition']['loss_weight']),
-    'maldi': Maldi(**tc['maldi']),
-    'resid_regr': ResidualRegression(**tc['resid_regr']),
-}
 

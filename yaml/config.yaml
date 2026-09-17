@@ -6,7 +6,7 @@ lr_warmup_steps: 1000
 lr: 1e-4
 max_steps: 1e10
 tasks:
-  - nary_mz
+  - NaryTask
   #- nary_ab
   #- hidden_mz
   #- hidden_ab
@@ -14,8 +14,9 @@ tasks:
   #- hidden_charge
   #- hidden_mass
   #- mass_competition
-  #- maldi
+  #- Maldi
   #- resid_regr
+  #- VAE
 downstream:
   #- denovo_ar
 first_report:
