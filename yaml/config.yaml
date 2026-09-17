@@ -32,11 +32,11 @@ nn_eval:
   metric: cosine
   query_batch_size: 2048
 
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
-loadpath: save/2026-09-14_17-53-17
+loadpath:
 svwts: False
 svfreq: 1800
 svgrad: False

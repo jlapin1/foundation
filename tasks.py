@@ -116,6 +116,7 @@ class NaryTask(Task):
         for m in range(buckets.min(), buckets.max()+1, 1):
             target[indsvec[buckets==m].split(1,1)] = m
         self.target = F.one_hot(target, self.buckets).type(th.float32)
+        self.sldim = target.shape[1]
         
         return inp
 
@@ -123,7 +124,7 @@ class NaryTask(Task):
         # logits dimension (length 3: trinary) must be after batch
         #target = self.target.to(prediction.device).transpose(-1,-2)
         loss = F.cross_entropy(
-            prediction.transpose(-1,-2), self.target.transpose(-1,-2), reduction='none'
+            prediction.transpose(-1,-2)[...,-self.sldim:], self.target.transpose(-1,-2), reduction='none'
         )
 
         return loss
