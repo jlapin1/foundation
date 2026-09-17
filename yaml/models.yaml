@@ -12,9 +12,10 @@ encoder_dict:
   depth: 9
   ffn_multiplier: 2
   prenorm: True
-  prec_type: inject_pre
+  prec_type: # pretoken_separate | pretoken_fuse | inject_pre
   use_charge: False
   use_mass: False
+  class_token: False
   bias: # 'pairwise' | 'regular' | False | None
   dropout: 0.25
   recycling_its: 1

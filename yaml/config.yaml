@@ -24,12 +24,12 @@ first_report:
   loadpath:
 steps_per_report: 150000
 
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
 loadpath:
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False

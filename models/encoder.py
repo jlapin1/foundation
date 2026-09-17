@@ -11,8 +11,10 @@ def init_encoder_weights(module):
     #        module.MzSeq[0].bias = I.zeros_(module.MzSeq[0].bias)
     if hasattr(module, 'first'):
         module.first.weight = I.xavier_uniform_(module.first.weight)
-        if module.first.bias is not None: 
+        if module.first.bias is not None:
             module.first.bias = I.zeros_(module.first.bias)
+    if hasattr(module, 'class_token'):
+        module.class_token = I.normal_(module.class_token, 0.0, 1.0)
     if isinstance(module, mp.SelfAttention):
         #maxmin = (6 / (module.qkv.in_features + module.d))**0.5
         #module.qkv.weight = I.xavier_uniform_(module.qkv.weight)#, -maxmin, maxmin)
@@ -49,6 +51,7 @@ class Encoder(nn.Module):
                  use_charge=False, # inject charge into TransBlocks
                  use_energy=False, # inject energy into TransBlocks
                  use_mass=False, # injuect mass into TransBlocks
+                 class_token=False, # constant learned class token
                  ce_units=256, # units for transformation of mzab fourier vectors
                  att_d=64, # attention qkv dimension units
                  att_h=4,  # attention qkv heads
@@ -82,7 +85,9 @@ class Encoder(nn.Module):
         self.use_charge = use_charge
         self.use_energy = use_energy
         self.use_mass = use_mass
+        self.use_class_token = class_token
         self.ce_units = ce_units
+        self.ce_out = running_units if 'pretoken' in prec_type else ce_units
         self.d = att_d
         self.h = att_h
         self.bias = bias
@@ -134,15 +139,23 @@ class Encoder(nn.Module):
                 prec_type = 'ffnembed'
             elif prec_type == 'inject_norm':
                 prec_type = 'normembed'
+            elif prec_type in ['pretoken_fuse', 'pretoken_separate']:
+                prec_type = None
             else:
                 raise NotImplementedError("Choose real prec_type")
             num = sum([use_charge, use_energy, use_mass])
             self.ce_emb = nn.Sequential(
-                nn.Linear(ce_units*num, ce_units), nn.SiLU()
+                nn.Linear(ce_units*num, self.ce_out), nn.SiLU()
             )
+        else:
+            self.prec_type = None
         
         # First transformation
         self.first = nn.Linear(mz_units+ab_units, running_units, bias=False)
+
+        # Class token
+        if class_token:
+            self.class_token = nn.Parameter(th.zeros(running_units), requires_grad=True)
 
         # Main block
         assert bias in ['pairwise', 'regular', False, None]
@@ -166,7 +179,6 @@ class Encoder(nn.Module):
         }
         if not self.atleast1 and prec_type is not None: 
             prec_type = None
-            print("<ENCCOMMENT> No precursors info used in model. Setting prec_type to None")
         self.main = nn.ModuleList([
             mp.TransBlock(
                 attention_dict, 
@@ -249,40 +261,8 @@ class Encoder(nn.Module):
         out = th.cat([mz_emb, ab_emb], dim=-1)
 
         return {'1d': out, '2d': mzpw_emb}
-    
-    def Main(self, inp, embed=None, mask=None, pwtsr=None, return_full=False):
-        out = inp
-        other = []
-        for layer in self.main:
-            out = layer(out, embed_feats=embed, spec_mask=mask, biastsr=pwtsr, return_full=return_full)
-            other.append(out['other'])
-            out = out['out']
-        return {'out': self.main_proj(out), 'other': other}
-    
-    def UpdateEmbed(self, 
-                    x, 
-                    charge=None, 
-                    energy=None, 
-                    mass=None,
-                    length=None, 
-                    emb=None,
-                    inp_mask=None,
-                    tag_array=None,
-                    return_mask=False,
-                    return_full=False,
-                    ):
-        # Create mask
-        if length != None:
-            grid = th.tile(
-                th.arange(x.shape[1], dtype=th.int32)[None].to(x.device), 
-                (x.shape[0], 1)
-            ) # bs, seq_len
-            mask = grid >= length[:, None]
-            mask = (1e7*mask).type(th.float32)
-        else:
-            mask = None
-        
-        # Spectrum level embeddings
+
+    def spectrum_level_embeddings(self, charge, energy, mass):
         if self.atleast1:
             ce_emb = []
             if self.use_charge:
@@ -298,27 +278,107 @@ class Encoder(nn.Module):
         else:
             ce_emb = None
         
+        return ce_emb
+
+    def spectrum_mask(self, length, xshape):
+        if length != None:
+            
+            grid = th.tile(
+                th.arange(xshape[1], dtype=th.int32)[None].to(length.device), 
+                (xshape[0], 1)
+            ) # bs, seq_len
+            mask = grid >= length[:, None]
+            if self.use_class_token or (self.prec_type is not None and 'pretoken' in self.prec_type):
+                num = 2 if self.prec_type == 'pretoken_separate' else 1
+                prepend = th.full((mask.shape[0], num), fill_value=False, device=mask.device)
+                mask = th.cat([prepend, mask], dim=1)
+            mask = (1e7*mask).type(th.float32)
+        else:
+            mask = None
+
+        return mask
+    
+    def prepend_token(self, token, tensor):
+        if token.ndim == 1:
+            prepend = token[None, None].tile([tensor.shape[0], 1, 1])
+        elif token.ndim == 2:
+            prepend = token[:,None]
+        elif token.ndim == 3:
+            prepend = token
+        out = th.cat([prepend, tensor], dim=1)
+        return out
+
+    def remove_pretoken(self, tensor):
+        prepend = out[:,0]
+        return out[:,1:], prepend
+
+    def add_pretokens(self, tensor, ce_emb):
+        if self.prec_type is not None and 'pretoken' in self.prec_type:
+            tensor = self.prepend_token(ce_emb, tensor)
+        if self.use_class_token:
+            if self.prec_type == 'pretoken_fuse':
+                tensor[:,0] += self.class_token[None]
+                ce_emb = None
+            elif self.prec_type == 'pretoken_separate':
+                tensor = self.prepend_token(self.class_token, tensor)
+                ce_emb = None
+            else:
+                tensor = self.prepend_token(self.class_token, tensor)
+
+        return tensor, ce_emb
+
+    def Main(self, inp, embed=None, mask=None, pwtsr=None, return_full=False):
+        out = inp
+        other = []
+        for layer in self.main:
+            out = layer(out, embed_feats=embed, spec_mask=mask, biastsr=pwtsr, return_full=return_full)
+            other.append(out['other'])
+            out = out['out']
+        
+        return {'out': self.main_proj(out), 'other': other}
+    
+    def UpdateEmbed(self, 
+                    x, 
+                    charge=None, 
+                    energy=None, 
+                    mass=None,
+                    length=None, 
+                    emb=None,
+                    inp_mask=None,
+                    tag_array=None,
+                    return_mask=False,
+                    return_full=False,
+                    ):
+        # Create mask
+        mask = self.spectrum_mask(length, x.shape)
+        
+        # Spectrum level embeddings
+        ce_emb = self.spectrum_level_embeddings(charge, energy, mass)
+        
         # Feed forward
         mzab_dic = self.MzAb(x, inp_mask)
-        mabemb = mzab_dic['1d']
-        pwemb = mzab_dic['2d']
+        mabemb = mzab_dic['1d'];pwemb = mzab_dic['2d']
         if self.bias == 'pairwise':
-            #pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
-            pwemb = self.PwSeq(pwemb)
+            pwemb = self.PwSeq(pwemb) #pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
         
         out = self.first(mabemb)
+
+        # Attach pretoken(s)
+        out, ce_emb = self.add_pretokens(out, ce_emb)
         
         # Reycling the embedding with normalization, perhaps dense transform
         if self.its > 1:
             out = self.alpha*out + self.alphacyc*self.recyc(emb)
         
+        # Main transformer block
         main = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
         
+        # Modulating the recycling iterations
         emb = (
             self.main_alpha*emb + self.main_beta*main['out']
             if self.its > 1 else main['out']
         )
-        
+
         output = {'emb': emb, 'mask': mask, 'other': main['other']}
         
         return output
