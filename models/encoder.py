@@ -87,7 +87,7 @@ class Encoder(nn.Module):
         self.use_mass = use_mass
         self.use_class_token = class_token
         self.ce_units = ce_units
-        self.ce_out = running_units if 'pretoken' in prec_type else ce_units
+        self.ce_out = running_units if prec_type is not None and 'pretoken' in prec_type else ce_units
         self.d = att_d
         self.h = att_h
         self.bias = bias

@@ -1,7 +1,7 @@
 loader:
   dataset_path: 
-    train: /cmnfs/data/proteomics/foundational_model/PretrainV1/parquets/*parquet
-    val: /cmnfs/data/proteomics/foundational_model/kingdoms/parquet/retrieval/*10k*parquet
+    train: /global/hdd/compms01/foundation/PretrainPT/*parquet
+    val: /global/hdd/compms01/foundation/retrieval/*10k*parquet
     test: #/global/hdd/compms01/foundation/PretrainPT/*test*parquet
   path_extension:
   dictionary_path: #/cmnfs/home/j.lapin/projects/foundational/save/notes/mkb_dictionary.txt

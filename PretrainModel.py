@@ -174,7 +174,7 @@ else:
 #                                    Loss                                      #
 ################################################################################
 
-import tasks
+import tasks.tasks as tasks
 
 # All tasks have loss variables for tracking
 T = tasks.all_tasks(tc)
