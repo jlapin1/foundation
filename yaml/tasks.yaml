@@ -32,4 +32,6 @@ resid_regr:
   freq: 1.0
   stdev: 0.1
 VAE:
-  holder:
+  binsz: 0.1
+  mzlims: [0, 2000]
+  kl_weight: 0.01

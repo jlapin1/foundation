@@ -1,16 +1,11 @@
 # STARTED MIGRATION
-from .base_task import Task
+from .base_task import Task, MzAbInp
 import numpy as np
 from utils import discretize_mz
 from copy import deepcopy
 import torch as th
 F = th.nn.functional
 device = th.device('cuda' if th.cuda.is_available() else 'cpu')
-
-MzAbInp = lambda batch: th.cat(
-    [batch['mz'][...,None], batch['ab'][...,None]],
-    axis=-1
-)
 
 class NaryTask(Task):
     def __init__(self, typ, buckets=3, freq=0.15, stdev=5, clip_vals=None):

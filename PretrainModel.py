@@ -53,6 +53,8 @@ config['lr'] = float(config['lr'])
 header_dict = mconf['header_dict']
 # Set -ary tasks prediction classes
 header_dict['tasks']['NaryTask']['num_classes'] = tc['NaryTask']['buckets']
+header_dict['tasks']['VAE']['class_token_input'] = mconf['encoder_dict']['class_token']
+header_dict['tasks']['VAE']['output_dim'] = int(np.floor((tc['VAE']['mzlims'][1] - tc['VAE']['mzlims'][0]) / tc['VAE']['binsz']))
 #header_dict['tasks']['nary_ab']['num_classes'] = tc['nary_ab']['buckets']
 #mzh = tc['hidden_mz']
 #header_dict['tasks']['hidden_mz']['bins'] = int( 
@@ -68,22 +70,8 @@ header_dict = {task: header_dict['tasks'][task] for task in config['tasks']}
 header_dict['in_units'] = mconf['encoder_dict']['running_units']
 
 # Denovo downstream evaluation
-# Match the encoder currently being pretrained so its state_dict below
-# loads cleanly (same architecture/dimensions)
-dnconfig['encoder_dict'] = {**mconf['encoder_dict'], 'empty': False}
-dnconfig['top_peaks'] = config['max_peaks']
-dnconfig['batch_size'] = config['batch_size']
-dnconfig['epochs'] = dsconfig['epochs']
-print(f"Denovo runs will last {dnconfig['epochs']} epochs")
-dnconfig['prev_wts'] = None
-dnconfig['pretrained_encoder_path'] = None # loading encoder inside denovo base
-dnconfig['loader']['val_name'] = dsconfig['loader']['val_species']
-dnconfig['freeze_encoder'] = dsconfig['freeze_encoder']
-dnconfig['save_weights'] = True if config['first_report']['only_dnv'] and config['svwts'] else False
-dnconfig['log_wandb'] = True if config['first_report']['only_dnv'] else False
-dnconfig['prev_wts'] = config['first_report']['loadpath'] if config['first_report']['only_dnv'] else None
-for key in dsconfig:
-    if 'lr_' in key: dnconfig[key] = dsconfig[key]
+if mconf['encoder_dict']['class_token']:
+    config['nn_eval']['pooling'] = 'class_token'
 
 ################################################################################
 #                                  Loader                                      #

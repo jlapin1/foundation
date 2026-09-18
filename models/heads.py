@@ -2,6 +2,7 @@ import numpy as np
 import models.model_parts as mp
 import torch as th
 from torch import nn
+from .vae_decoder import VAEDecoder
 
 class ClassifierHead(nn.Module):
     # Outputs a desired number (num_classes) of classes
@@ -247,6 +248,10 @@ class Header(nn.Module):
             dic = head_dic['resid_regr']
             self.heads['resid_regr'] = RegressorHead(**dic, in_units=IU)
 
+        if "VAE" in head_dic.keys():
+            dic = head_dic['VAE']
+            self.heads['VAE'] = VAEDecoder(**dic, in_units=IU)
+        
         self.opts = {
             key: th.optim.Adam(self.heads[key].parameters(), lr=lr)
             for key in 

@@ -44,6 +44,8 @@ def _masked_pool(emb, length, mode='mean'):
     elif mode == 'max':
         masked = emb.masked_fill(~valid.unsqueeze(-1), float('-inf'))
         return masked.max(dim=1).values.nan_to_num(neginf=0.0)
+    elif mode == 'class_token':
+        return emb[:,0]
     raise ValueError(f"Unknown pooling mode: {mode!r}")
 
 

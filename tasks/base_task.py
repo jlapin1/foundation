@@ -1,5 +1,11 @@
 from collections import deque
 import numpy as np
+import torch as th
+
+MzAbInp = lambda batch: th.cat(
+    [batch['mz'][...,None], batch['ab'][...,None]],
+    axis=-1
+)
 
 class Task:
     def __init__(self, typ, maxlen=50):
@@ -42,3 +48,6 @@ class Task:
         for key in self.total_loss.keys():
             self.total_loss[key] = 0
         self.total_counter = 0
+
+    def inptarg(self, *args, **kwargs):
+        pass
