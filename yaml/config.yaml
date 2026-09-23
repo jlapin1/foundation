@@ -17,13 +17,13 @@ tasks:
   #- Maldi
   #- resid_regr
   #- VAE
-downstream:
-  #- denovo_ar
+
+# Downstream evaluation
+steps_per_report: 15000
 first_report:
   pretrain_execute: False
   only_dnv: False
   loadpath: # For continuing from previous denovo run
-steps_per_report: 15000
 dnv_eval:
   execute: False
 nn_eval:
@@ -33,10 +33,12 @@ nn_eval:
   metric: cosine
   query_batch_size: 2048
 
+# Logging
 log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
+# Loading and Saving
 loadpath:
 svwts: False
 svfreq: 1800
