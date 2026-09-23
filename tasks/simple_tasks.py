@@ -41,7 +41,7 @@ class NaryTask(Task):
         random = custom_sampler(batch['ab'])
         
         # Get the column indices of the lowest random numbers
-        dim1 = random.argsort(-1)[where]
+        dim1 = random.argsort(-1, descending=True)[where]
         inds = (where[0], dim1)
         indsvec = th.cat([where[0][:,None], dim1[:,None]], dim=1)
         
