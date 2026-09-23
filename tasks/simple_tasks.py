@@ -1,5 +1,5 @@
 # STARTED MIGRATION
-from .base_task import Task, MzAbInp
+from .base_task import Task, MzAbInp, beta_ab_sampler, custom_sampler
 import numpy as np
 from utils import discretize_mz
 from copy import deepcopy
@@ -8,7 +8,7 @@ F = th.nn.functional
 device = th.device('cuda' if th.cuda.is_available() else 'cpu')
 
 class NaryTask(Task):
-    def __init__(self, typ, buckets=3, freq=0.15, stdev=5, clip_vals=None):
+    def __init__(self, typ, buckets=3, freq=0.15, stdev=5, clip_vals=None,):
         super().__init__(typ)
         self.buckets = buckets
         self.freq = freq
@@ -37,7 +37,9 @@ class NaryTask(Task):
 
         # Sample from beta distributions based on intensities
         # - higher concentration0 shifts balance towards higher intensities, ~0 is uniform
-        random = 1 - th.distributions.Beta(concentration1=batch['ab'].clamp(1e-5, 1), concentration0=1.0).sample()
+        #random = beta_ab_sampler(batch['ab'])
+        random = custom_sampler(batch['ab'])
+        
         # Get the column indices of the lowest random numbers
         dim1 = random.argsort(-1)[where]
         inds = (where[0], dim1)

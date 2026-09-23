@@ -6,7 +6,7 @@ lr_warmup_steps: 1000
 lr: 1e-4
 max_steps: 1e10
 tasks:
-  #- NaryTask
+  - NaryTask
   #- nary_ab
   #- hidden_mz
   #- hidden_ab
@@ -16,18 +16,18 @@ tasks:
   #- mass_competition
   #- Maldi
   #- resid_regr
-  - VAE
+  #- VAE
 downstream:
   #- denovo_ar
 first_report:
   pretrain_execute: False
   only_dnv: False
   loadpath: # For continuing from previous denovo run
-steps_per_report: 20000
+steps_per_report: 15000
 dnv_eval:
-  execute: True
-nn_eval:
   execute: False
+nn_eval:
+  execute: True
   top_n: 10
   pooling: mean
   metric: cosine
