@@ -1,9 +1,9 @@
-from .base_task import Task, MzAbInp
+from .base_task import Task, MzAbInp, custom_sampler
 import torch
 import numpy as np
 
 class VAE(Task):
-    def __init__(self, binsz=0.1, mzlims=[0, 2000], kl_weight=1.0):
+    def __init__(self, binsz=0.1, mzlims=[0, 2000], kl_weight=1.0, subsample_rate=0):
         super().__init__('both')
         self.binsz = binsz
         self.mzlims = mzlims
@@ -11,10 +11,42 @@ class VAE(Task):
         self.bin_edges = torch.linspace(mzlims[0], mzlims[1], self.totbins)
         self.bin_centers = self.bin_edges[:-1] + binsz / 2.0
         self.kl_weight = kl_weight
+        self.subsample_rate = subsample_rate
+    
+    def subsample(self, batch):
+        device = batch['mz'].device
+        
+        # How many peaks should we keep
+        keep_amount = (batch['length']*self.subsample_rate).round().int()
+        max_seq_length = keep_amount.max()
+
+        # Index array
+        array = torch.arange(
+            batch['ab'].shape[1], device=device
+        )[None].tile([batch['ab'].shape[0], 1])
+        
+        # Sample
+        sample = custom_sampler(batch['ab'], 5.)
+        # but don't select any non-peaks
+        sample[array>=batch['length'][:,None]] = 0
+        # Sort top sampled peaks
+        a = sample.argsort(dim=1, descending=True)
+        
+        # Get new subsampled spectra, sorted by m/z
+        sampled_mzs = batch['mz'].gather(1, a)
+        keep_bool_array = torch.where(array >= keep_amount[:,None])
+        sampled_mzs[keep_bool_array] = 9e9
+        sampled_intensities = batch['ab'].gather(1, a)
+        sorted_mzs, b = sampled_mzs.sort(dim=1)
+        sorted_intensities = sampled_intensities.gather(1, b)
+
+        return {
+            'mz': sorted_mzs[:, :max_seq_length],
+            'ab': sorted_intensities[:, :max_seq_length],
+        }
 
     def inptarg(self, batch):
-
-        mzab = MzAbInp(batch)
+        mzab = MzAbInp(batch if self.subsample_rate==0 else self.subsample(batch))
         inp = {
             'x': mzab,
             'charge': batch['charge'],

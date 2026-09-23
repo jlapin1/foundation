@@ -35,3 +35,4 @@ VAE:
   binsz: 0.1
   mzlims: [0, 2000]
   kl_weight: 0.00001
+  subsample_rate: 0.5
