@@ -38,6 +38,7 @@ class VAE(Task):
         sampled_mzs[keep_bool_array] = 9e9
         sampled_intensities = batch['ab'].gather(1, a)
         sorted_mzs, b = sampled_mzs.sort(dim=1)
+        sorted_mzs[keep_bool_array] = 0
         sorted_intensities = sampled_intensities.gather(1, b)
 
         return {
