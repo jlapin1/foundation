@@ -19,6 +19,7 @@ class Task:
         self.running_loss = {'main': deque(maxlen=maxlen)}
         self.total_loss = {'main': 0}
         self.total_counter = 0
+        self.head_kwargs = {}
     
     def add_loss_key(self, key):
         self.running_loss[key] = deque(maxlen=self.maxlen)
@@ -54,4 +55,7 @@ class Task:
         self.total_counter = 0
 
     def inptarg(self, *args, **kwargs):
+        pass
+
+    def on_train_step_end(self, *args, **kwargs):
         pass

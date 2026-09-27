@@ -15,7 +15,7 @@ encoder_dict:
   prec_type: # pretoken_separate | pretoken_fuse | inject_pre
   use_charge: False
   use_mass: False
-  class_token: True
+  class_token: False
   bias: # 'pairwise' | 'regular' | False | None
   dropout: 0.25
   recycling_its: 1
@@ -72,4 +72,5 @@ header_dict:
       latent_dim: 128
       hidden_dim: 256
       depth: 4
-
+    JEPA:
+      depth: 4

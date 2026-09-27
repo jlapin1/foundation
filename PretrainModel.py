@@ -55,6 +55,7 @@ header_dict = mconf['header_dict']
 header_dict['tasks']['NaryTask']['num_classes'] = tc['NaryTask']['buckets']
 header_dict['tasks']['VAE']['class_token_input'] = mconf['encoder_dict']['class_token']
 header_dict['tasks']['VAE']['output_dim'] = int(np.floor((tc['VAE']['mzlims'][1] - tc['VAE']['mzlims'][0]) / tc['VAE']['binsz']))
+header_dict['tasks']['JEPA']['out_units'] = mconf['encoder_dict']['running_units']
 #header_dict['tasks']['nary_ab']['num_classes'] = tc['nary_ab']['buckets']
 #mzh = tc['hidden_mz']
 #header_dict['tasks']['hidden_mz']['bins'] = int( 
@@ -181,6 +182,7 @@ import tasks
 import importlib
 import inspect
 import pkgutil
+import inspect
 classes_dict = {}
 # Iterate over all modules inside the package directory
 for _, module_name, is_pkg in pkgutil.iter_modules(tasks.__path__):
@@ -193,10 +195,19 @@ for _, module_name, is_pkg in pkgutil.iter_modules(tasks.__path__):
             if obj.__module__ == full_module_name:
                 classes_dict[name] = obj
 
+def local_variables_to_dict(task_name):
+    sig = inspect.signature(task_name).parameters.keys()
+    return 
+
 T = {}
 for task in config['tasks']:
     T_ = classes_dict[task]
-    T[task] = T_(**tc[task])
+    # Next 3 lines: if you have an argument for the task __init__ that is a variable in the main function
+    sig = inspect.signature(T_).parameters.keys()
+    local_variables = dir()
+    local_variables = {key: eval(key) for key in sig if key in local_variables}
+    # Create thte task
+    T[task] = T_(**(tc[task] | local_variables))
 
 # All tasks have loss variables for tracking
 loss_spec = " ".join(['%s: %%7.5f'%task_name for task_name in T.keys()])
@@ -315,7 +326,7 @@ def train_step(batch, task, enc_opt, head_opt):
     else:
         enc_output = encoder(**inp)
 
-    prediction = header(enc_output['emb'], head_outputs)
+    prediction = header(enc_output['emb'], head_outputs, head_kwargs=T[task].head_kwargs)
     loss = T[task].loss(prediction[task])
     loss = loss.mean()
     
@@ -326,6 +337,8 @@ def train_step(batch, task, enc_opt, head_opt):
     update_lr()
     
     encoder.global_step +=1
+
+    T[task].on_train_step_end()
 
     return loss
 

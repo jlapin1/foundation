@@ -251,6 +251,11 @@ class Header(nn.Module):
         if "VAE" in head_dic.keys():
             dic = head_dic['VAE']
             self.heads['VAE'] = VAEDecoder(**dic, in_units=IU)
+
+        if "JEPA" in head_dic.keys():
+            from .jepa_modules import JEPAPredictor
+            dic = head_dic['JEPA']
+            self.heads['JEPA'] = JEPAPredictor(**dic, in_units=IU)
         
         self.opts = {
             key: th.optim.Adam(self.heads[key].parameters(), lr=lr)
@@ -258,12 +263,12 @@ class Header(nn.Module):
             self.heads.keys()
         }
 
-    def forward(self, emb, outs='all'):
+    def forward(self, emb, outs='all', head_kwargs={}):
         out = {}
         if outs=='all': outs = self.heads.keys()
         
         for head_type in outs:
-            out[head_type] = self.heads[head_type](emb)
+            out[head_type] = self.heads[head_type](emb=emb, **head_kwargs)
         
         return out
 
