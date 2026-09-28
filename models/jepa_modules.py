@@ -86,6 +86,8 @@ class JEPAPredictor(JEPATransformer):
         self.final = nn.Linear(running_units, out_units)
 
     def forward(self, target_mz, emb):
+        expand = int(target_mz.shape[0] / emb.shape[0])
+        emb = emb[:,None].tile([1, expand, 1, 1]).reshape(-1, *emb.shape[-2:])
         mz_emb = mp.FourierFeatures(target_mz, 0.001, 10000, self.running_units) + self.mask_token
         out = self.first(mz_emb)
         for block in self.main:

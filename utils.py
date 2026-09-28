@@ -41,7 +41,7 @@ def save_full_model(model, optimizer, svdir, remark=""):
         optimizer, '%s/weights/opt_encopt_%s.wts'%(svdir, remark)
     )
 
-def save_all_weights(svdir, encodern, header, remark="", clear=False):
+def save_all_weights(svdir, encodern, header, tasks, remark="", clear=False):
     if clear:
         os.system("rm %s/weights/*"%svdir)
     encoder, optencoder = encodern
@@ -52,6 +52,8 @@ def save_all_weights(svdir, encodern, header, remark="", clear=False):
         # optimizer.name should have opt_ already in it (see Header in models)
         fn = '%s/weights/opt_%s_%s.wts'%(svdir, task_name, remark)
         save_optimizer_state(header.opts[task_name], fn)
+        # Save any task specific parameters/models
+        tasks[task_name].on_save(svdir, remark)
 
 find_file = lambda Match, loadpath: os.path.join(loadpath, [m for m in os.listdir(loadpath) if Match in m][0])
 

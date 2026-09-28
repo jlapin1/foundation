@@ -459,11 +459,7 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
             # Saving weights and testing
             if config['svwts'] and (time()-svtime > svfreq):
                 remark = f"step_{encoder.global_step.item()}_last"
-                U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
-                #remark = "step_%d_loss_%.5f"%(encoder.global_step.item(), eval_loss)
-                #last_loss = float(".".join(U.find_file("model_enc", svdir+'/weights').split('_')[-1].split('.')[:-1]))
-                #if swt & (eval_loss < last_loss):
-                #    U.save_all_weights(svdir, (encoder, optencoder), header, remark=remark, clear=True)
+                U.save_all_weights(svdir, (encoder, optencoder), header, tasks=T, remark=remark, clear=True)
                 svtime = time()
 
             # Run evaluation and save training_loss

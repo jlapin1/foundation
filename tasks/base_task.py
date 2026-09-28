@@ -59,3 +59,6 @@ class Task:
 
     def on_train_step_end(self, *args, **kwargs):
         pass
+
+    def on_save(self, save_directory, *args, **kwargs):
+        pass

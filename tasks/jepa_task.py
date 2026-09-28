@@ -25,7 +25,7 @@ class EMAUpdater:
                 target_param.data.mul_(self.decay).add_(online_param.data, alpha=1.0-self.decay)
 
 class JEPA(Task):
-    def __init__(self, encoder, context_prop):
+    def __init__(self, encoder, context_prop, target_prop, target_blocks):
         super().__init__('both')
         self.target_encoder = deepcopy(encoder)
         for param in self.target_encoder.parameters(): param.requires_grad=False
@@ -34,6 +34,8 @@ class JEPA(Task):
         self.ema = EMAUpdater(encoder, self.target_encoder)
 
         self.context_prop = context_prop
+        self.target_prop = target_prop
+        self.target_blocks = target_blocks
 
     def subsample(self, batch, rate, samp_num=5):
         device = batch['mz'].device
@@ -69,6 +71,9 @@ class JEPA(Task):
         }, a[:,:max_seq_length]
 
     def inptarg(self, batch):
+        BS, SL = batch['mz'].shape
+        target_sl = int(SL*self.target_prop)
+
         mzab, inds = local_MzAbInp(batch) if self.context_prop==0 else self.subsample(batch, self.context_prop)
         inp = {
             'x': MzAbInp(mzab),
@@ -85,10 +90,17 @@ class JEPA(Task):
         }
         target_rep = self.target_encoder(**target_input)['emb']
         
-        M = local_custom_sampler(batch['ab'], 0).argsort(dim=1)[:,-12:]
-        target_mz = batch['mz'].gather(-1, M)
-        self.head_kwargs['target_mz'] = target_mz.round()
-
+        intensity_array = batch['ab'][:,None].tile([1, self.target_blocks, 1]).reshape(-1, SL)
+        sample = local_custom_sampler(intensity_array, 0)
+        batch_indices = torch.arange(intensity_array.shape[0])[:,None].tile([1, inds.shape[1]])
+        inds_indices = inds[:,None].tile([1, self.target_blocks, 1]).reshape(-1, inds.shape[1])
+        sample[batch_indices, inds_indices] = 0
+        M = sample.argsort(dim=1)[:, -target_sl:]
+        mz_array = batch['mz'][:,None].tile([1, self.target_blocks, 1]).reshape(-1, SL)
+        target_mz = mz_array.gather(-1, M)
+        self.head_kwargs['target_mz'] = target_mz
+        
+        target_rep = target_rep[:,None].tile([1, self.target_blocks, 1, 1]).reshape(-1, *target_rep.shape[1:])
         self.targets = target_rep.gather(1, M[...,None].expand(-1, -1, target_rep.shape[-1]))
 
         """
@@ -123,4 +135,7 @@ class JEPA(Task):
 
     def on_train_step_end(self):
         self.ema.update()
+
+    def on_save(self, save_directory, remark):
+        torch.save(self.target_encoder.state_dict(), f"{save_directory}/weights/target_encoder_JEPA_{remark}.wts")
 
