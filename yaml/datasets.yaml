@@ -18,6 +18,6 @@ loader:
     #- instrument # V2
   val_steps: 100
   scratch:
-    use: True
+    use: False
     path: /media/storage/scratch/pretrain/
   custom:

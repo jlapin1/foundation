@@ -15,7 +15,7 @@ encoder_dict:
   prec_type: # pretoken_separate | pretoken_fuse | inject_pre
   use_charge: False
   use_mass: False
-  class_token: False
+  class_token: True
   bias: # 'pairwise' | 'regular' | False | None
   dropout: 0.25
   recycling_its: 1

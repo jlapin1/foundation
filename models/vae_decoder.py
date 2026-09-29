@@ -65,9 +65,8 @@ class VAEDecoder(nn.Module):
         out = self.decoder_block(z)
         return self.final(out)
 
-    def forward(self, x):
-        if self.class_token_input:
-            x = x[:,0]
+    def forward(self, emb):
+        x = emb[:,0] if self.class_token_input else emb
         func = lambda x: x.mean(dim=1) if x.ndim == 3 else x
         
         mu, sigma = func(self.fc(x)).chunk(2, dim=-1)
