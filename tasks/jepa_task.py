@@ -92,9 +92,9 @@ class JEPA(Task):
         
         intensity_array = batch['ab'][:,None].tile([1, self.target_blocks, 1]).reshape(-1, SL)
         sample = local_custom_sampler(intensity_array, 0)
-        batch_indices = torch.arange(intensity_array.shape[0])[:,None].tile([1, inds.shape[1]])
-        inds_indices = inds[:,None].tile([1, self.target_blocks, 1]).reshape(-1, inds.shape[1])
-        sample[batch_indices, inds_indices] = 0
+        #batch_indices = torch.arange(intensity_array.shape[0])[:,None].tile([1, inds.shape[1]])
+        #inds_indices = inds[:,None].tile([1, self.target_blocks, 1]).reshape(-1, inds.shape[1])
+        #sample[batch_indices, inds_indices] = 0
         M = sample.argsort(dim=1)[:, -target_sl:]
         mz_array = batch['mz'][:,None].tile([1, self.target_blocks, 1]).reshape(-1, SL)
         target_mz = mz_array.gather(-1, M)

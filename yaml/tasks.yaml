@@ -39,4 +39,4 @@ VAE:
 JEPA:
   context_prop: 0.25
   target_prop: 0.125
-  target_blocks: 2
+  target_blocks: 5
