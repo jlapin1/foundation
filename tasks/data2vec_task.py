@@ -34,6 +34,7 @@ class Data2Vec(Task):
     def __init__(self, encoder, mask_prop=0.15, top_blocks=5, ema_params={}):
         super().__init__('both')
         self.target_encoder = deepcopy(encoder)
+        self.target_encoder.return_all = True
         for param in self.target_encoder.parameters(): param.requires_grad=False
         self.target_encoder.to(device)
         self.target_encoder.eval()

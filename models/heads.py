@@ -260,7 +260,7 @@ class Header(nn.Module):
         if "Data2Vec" in head_dic.keys():
             from .data2vec_modules import Data2VecPredictor
             dic = head_dic['Data2Vec']
-            self.heads['Data2Vec'] = Data2VecPredictor()
+            self.heads['Data2Vec'] = Data2VecPredictor(**dic, in_units=IU)
         
         self.opts = {
             key: th.optim.Adam(self.heads[key].parameters(), lr=lr)
