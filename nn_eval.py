@@ -28,7 +28,7 @@ def FracTopNdf(row, n=None):
     if n==None:
         n = len(row['neighbor_uniq'])
     rc = row['replicate_counts']
-    denominator = rc if rc <= n else n
+    denominator = rc-1 if rc <= n else n
     return sum(row['query_uniq'] == np.array(row['neighbor_uniq'])) / denominator
 
 def _masked_pool(emb, length, mode='mean'):
