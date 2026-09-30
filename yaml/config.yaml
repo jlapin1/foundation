@@ -6,18 +6,19 @@ lr_warmup_steps: 1000
 lr: 1e-4
 max_steps: 1e10
 tasks:
-  - NaryTask
-  - VAE
+  #- NaryTask
+  #- VAE
   #- JEPA
+  - Data2Vec
 
 # Downstream evaluation
-steps_per_report: 150000
+steps_per_report: 15000
 first_report:
   pretrain_execute: False
   only_dnv: False
   loadpath: # For continuing from previous denovo run
 dnv_eval:
-  execute: True
+  execute: False
 nn_eval:
   execute: True
   top_n: 10
@@ -26,13 +27,13 @@ nn_eval:
   query_batch_size: 2048
 
 # Logging
-log_wandb: True
+log_wandb: False
 wandb_project: foundation
 wandb_entity: joellapin
 
 # Loading and Saving
 loadpath:
-svwts: True
+svwts: False
 svfreq: 1800
 svgrad: False
 debug: False

@@ -56,6 +56,9 @@ header_dict['tasks']['NaryTask']['num_classes'] = tc['NaryTask']['buckets']
 header_dict['tasks']['VAE']['class_token_input'] = mconf['encoder_dict']['class_token']
 header_dict['tasks']['VAE']['output_dim'] = int(np.floor((tc['VAE']['mzlims'][1] - tc['VAE']['mzlims'][0]) / tc['VAE']['binsz']))
 header_dict['tasks']['JEPA']['out_units'] = mconf['encoder_dict']['running_units']
+if 'Data2Vec' in config['tasks']:
+    mconf['encoder_dict']['masked'] = True # Inputs need to be masked
+    mconf['encoder_dict']['return_all'] = True # Loss function needs all Transformer outputs in depth
 #header_dict['tasks']['nary_ab']['num_classes'] = tc['nary_ab']['buckets']
 #mzh = tc['hidden_mz']
 #header_dict['tasks']['hidden_mz']['bins'] = int( 
@@ -184,7 +187,7 @@ import inspect
 import pkgutil
 import inspect
 classes_dict = {}
-# Iterate over all modules inside the package directory
+# Iterate over all modules inside the tasks directory
 for _, module_name, is_pkg in pkgutil.iter_modules(tasks.__path__):
     if not is_pkg:
         # Dynamically import the module

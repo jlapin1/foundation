@@ -40,3 +40,10 @@ JEPA:
   context_prop: 0.25
   target_prop: 0.125
   target_blocks: 5
+Data2Vec:
+  mask_prop: 0.15
+  top_blocks: 1
+  ema_params:
+    decay_0: 0.999
+    decay_e: 0.9999
+    steps: 100000

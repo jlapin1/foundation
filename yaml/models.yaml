@@ -74,3 +74,5 @@ header_dict:
       depth: 4
     JEPA:
       depth: 4
+    Data2Vec:
+      depth: 4

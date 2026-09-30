@@ -74,6 +74,8 @@ class Encoder(nn.Module):
                  # Miscellaneous
                  recycling_its=1, # recycling iterations
                  device=th.device('cpu'),
+                 masked=False,
+                 return_all=False,
                  **kwargs
                  ):
         super(Encoder, self).__init__()
@@ -99,6 +101,8 @@ class Encoder(nn.Module):
         self.prec_type = prec_type
         self.its = recycling_its
         self.device = device
+        self.masked = masked
+        self.return_all = return_all
         
         # m/z Fourier Features
         mdim = mz_units//4 if subdivide else mz_units
@@ -129,6 +133,10 @@ class Encoder(nn.Module):
                 nn.SiLU(),
                 nn.Linear(ffn_multiplier*self.pw_runits, self.pw_runits)
             ])
+
+        # m/z for masks
+        if self.masked:
+            self.mask_token = nn.Parameter(th.randn(running_units), requires_grad=True)
 
         # charge/energy/mass embedding transformation
         self.atleast1 = use_charge or use_energy or use_mass
@@ -330,12 +338,15 @@ class Encoder(nn.Module):
     def Main(self, inp, embed=None, mask=None, pwtsr=None, return_full=False):
         out = inp
         other = []
+        all_outs = []
         for layer in self.main:
             out = layer(out, embed_feats=embed, spec_mask=mask, biastsr=pwtsr, return_full=return_full)
             other.append(out['other'])
             out = out['out']
+            if self.return_all:
+                all_outs.append(out)
         
-        return {'out': self.main_proj(out), 'other': other}
+        return {'out': self.main_proj(out), 'all': all_outs, 'other': other}
     
     def UpdateEmbed(self, 
                     x, 
@@ -362,6 +373,8 @@ class Encoder(nn.Module):
             pwemb = self.PwSeq(pwemb) #pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
         
         out = self.first(mabemb)
+        if self.masked:
+            out[x[...,0] < 0] = self.mask_token
 
         # Attach pretoken(s)
         out, ce_emb = self.add_pretokens(out, ce_emb)
@@ -379,7 +392,7 @@ class Encoder(nn.Module):
             if self.its > 1 else main['out']
         )
 
-        output = {'emb': emb, 'mask': mask, 'other': main['other']}
+        output = {'emb': emb, 'mask': mask, 'other': main['other'], 'all': main['all']}
         
         return output
     

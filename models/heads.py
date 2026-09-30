@@ -256,6 +256,11 @@ class Header(nn.Module):
             from .jepa_modules import JEPAPredictor
             dic = head_dic['JEPA']
             self.heads['JEPA'] = JEPAPredictor(**dic, in_units=IU)
+
+        if "Data2Vec" in head_dic.keys():
+            from .data2vec_modules import Data2VecPredictor
+            dic = head_dic['Data2Vec']
+            self.heads['Data2Vec'] = Data2VecPredictor()
         
         self.opts = {
             key: th.optim.Adam(self.heads[key].parameters(), lr=lr)
