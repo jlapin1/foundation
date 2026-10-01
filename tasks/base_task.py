@@ -62,3 +62,6 @@ class Task:
 
     def on_save(self, save_directory, *args, **kwargs):
         pass
+
+    def log_dict(self, *args, **kwargs):
+        return {}

@@ -435,11 +435,12 @@ def train(epochs=1, runlen=50, svfreq=3600, save_path=None):
             loss = loss.item()
             T[random_task].log_loss(loss)
             if config['log_wandb']:
+                task_specific_logs = T[random_task].log_dict()
                 wandb.log({
                     'learning_rate': optencoder.param_groups[-1]['lr'],
                     'global_step': encoder.global_step.item(), 
                     random_task: loss,
-                })
+                } | task_specific_logs)
             
             # Gradient tracking
             if config['svgrad']:

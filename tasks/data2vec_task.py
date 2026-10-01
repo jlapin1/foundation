@@ -2,6 +2,7 @@ from .base_task import Task, MzAbInp, custom_sampler
 import torch
 import numpy as np
 from copy import deepcopy
+from utils import compute_embedding_variance_metrics
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 local_MzAbInp = lambda batch: MzAbInp(batch), None
@@ -112,4 +113,10 @@ class Data2Vec(Task):
 
     def on_save(self, save_directory, remark):
         torch.save(self.target_encoder.state_dict(), f"{save_directory}/weights/target_encoder_JEPA_{remark}.wts")
+
+    def log_dict(self):
+        dic = compute_embedding_variance_metrics(self.target)
+        return {
+            'ema_tau': self.ema.decay_current.item()
+        } | dic
 

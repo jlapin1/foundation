@@ -9,6 +9,7 @@ from copy import deepcopy
 import datetime
 import re
 import os
+from typing import Dict, Optional
 
 def timestamp():
     dt = str(datetime.datetime.now()).split()
@@ -163,101 +164,6 @@ def roc_apply_threshold(recall, precision, probabilities, threshold=0.9):
         'precision': precision[-1]
     }
 
-
-def partition_seq(seq, collect_mods=False):
-        Seq = []
-        if collect_mods: mods = []
-        p=0
-        while p < len(seq):
-            aa = seq[p]
-            if aa=='(':
-                let = seq[p-1]
-                end = seq[p:].find(')')
-                mod = seq[p+1 : p+end]
-                if collect_mods: mods.append(mod)
-                p += end
-                aa = '%c_%s'%(let, mod)
-                Seq[-1] = aa
-            else:
-                Seq.append(aa)
-            p+=1
-        output = {'seq': Seq}
-        if collect_mods: output['mods'] = mods
-
-        return output
-
-def partition_modified_sequence(modseq):
-    sequence = []
-    p = 0
-    while p < len(modseq):
-        character = modseq[p]
-        hx = ord(character)
-        
-        # Pull out mod, in the form of a floating point number
-        if hx < 65:
-            mod_lst = []
-
-            # N-terminal modifications precede the amino acid letter
-            nterm = True if p == 0 else False
-
-            # All numerals and mathematical symbels are below 65
-            while hx < 65:
-                mod_lst.append(character)
-                p += 1
-
-                # This will happen if we have a C-term modification
-                if p == len(modseq):
-                    break
-                else:
-                    character = modseq[p]
-                    hx = ord(character)
-            mod = "".join(mod_lst)
-
-            # Add the amino acid to the end of the number if N-term
-            if nterm:
-                # These nterm modifications occur with every amino acid at least once.
-                if mod in ["+42.011", "+43.006"]:
-                    sequence.append(mod)
-                else:
-                    token = mod + character
-                    sequence.append(token)
-            
-            # Grab the previously stored sequence AA and add modification to it
-            else:
-                sequence[-1] += mod
-            
-            p -= 1
-
-        else:
-            sequence.append(character)
-
-        p += 1
-    
-    return sequence
-
-masses = {
-	'A': 71.037113805,
-    'R': 156.101111050,
-	'N': 114.042927470,
-	'D': 115.026943065,
-	'C': 103.009184505,
-	'Q': 128.058577540,
-	'E': 129.042593135,
-	'G': 57.021463735,
-	'H': 137.058911875,
-	'I': 113.084064015,
-	'L': 113.084064015,
-	'K': 128.094963050,
-	'M': 131.040484645,
-	'F': 147.068413945,
-	'P': 97.052763875,
-	'S': 87.032028435,
-	'T': 101.047678505,
-	'W': 186.079312980,
-	'Y': 163.063328575,
-	'V': 99.068413945,
-}
-
 class Scale:
     def __init__(self, amod_dict):
         self.amod_dict = amod_dict
@@ -297,3 +203,65 @@ def Dict2dev(Dict, device, inplace=False):
 
 def global_grad_norm(model):
     return sum([m.grad.detach().square().sum().item() for m in model.parameters() if (m.requires_grad and m.grad is not None)])**0.5
+
+def compute_embedding_variance_metrics(
+    z: th.Tensor, 
+    eps: float = 1e-8,
+    rank: bool = False,
+) -> Dict[str, th.Tensor]:
+    """
+    Computes key embedding metrics for a batch of latent vectors z.
+    
+    Args:
+        z (torch.Tensor): Tensor of shape (batch_size, sequence_length, dim)
+        eps (float): Numerical stability parameter
+        
+    Returns:
+        dict: Dictionary containing calculated metrics.
+    """
+        
+    N, sl, d = z.shape
+    
+    output = {}
+
+    # 1. Per-Dimension Variance & Total Variance
+    # Unbiased sample variance along the batch dimension
+    per_dim_var = th.var(z, dim=[0,1], unbiased=True)  # Shape: (d,)
+    total_var = th.sum(per_dim_var)
+    dead_dims_ratio = th.mean((per_dim_var < 1e-4).float())
+    output['total_variance'] = total_var.item()
+    output['dead_dimensions_ratio'] = dead_dims_ratio.item()
+
+    if rank:
+        # 2. Singular Value Decomposition (SVD) on Covariance
+        # Center the embeddings: Z_centered (N, d)
+        z_centered = z - th.mean(z, dim=[0,1], keepdim=True)
+        
+        # Compute singular values S of the centered batch
+        # Note: SVD on Z_centered scales as S_i = sqrt((N-1) * covariance_eigenvalue_i)
+        _, S, _ = th.linalg.svd(z_centered, full_matrices=False)
+        
+        # Normalize singular values to obtain probability mass function for entropy
+        S_sum = th.sum(S) + eps
+        p = S / S_sum
+        
+        # 3. Effective Rank (Entropy-based)
+        # Shannon Entropy H(p) = - sum(p * log(p))
+        entropy = -th.sum(p * th.log(p + eps))
+        effective_rank = th.exp(entropy)
+        output['effective_rank'] = effective_rank.item()
+        
+        # Normalized Effective Rank in range [1/d, 1.0]
+        normalized_rank = effective_rank / d
+        output['normalized_rank'] = normalized_rank.item()
+    
+    # 4. Intra-Sequence / Token-wise Variance
+    token_var = th.mean(th.var(z, dim=1, unbiased=True))
+    output['token_variance'] = token_var.item()
+
+    # 5. Inter-Instance Variance
+    seq_means = th.mean(z, dim=1)
+    instance_var = th.mean(th.var(seq_means, dim=0, unbiased=True))
+    output['inter_instance_variance'] = instance_var.item()
+
+    return output

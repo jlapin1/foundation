@@ -3,6 +3,22 @@ NaryTask:
   buckets: 3
   freq: 0.15
   stdev: 0.1
+VAE:
+  binsz: 0.1
+  mzlims: [0, 2000]
+  kl_weight: 0.00001
+  subsample_rate: 0.25
+JEPA:
+  context_prop: 0.25
+  target_prop: 0.125
+  target_blocks: 5
+Data2Vec:
+  mask_prop: 0.15
+  top_blocks: 5
+  ema_params:
+    decay_0: 0.999
+    decay_e: 0.9999
+    steps: 500000
 #nary_ab:
 #  buckets: 3
 #  freq: 0.15
@@ -31,19 +47,3 @@ NaryTask:
 #resid_regr:
 #  freq: 1.0
 #  stdev: 0.1
-VAE:
-  binsz: 0.1
-  mzlims: [0, 2000]
-  kl_weight: 0.00001
-  subsample_rate: 0.25
-JEPA:
-  context_prop: 0.25
-  target_prop: 0.125
-  target_blocks: 5
-Data2Vec:
-  mask_prop: 0.15
-  top_blocks: 5
-  ema_params:
-    decay_0: 0.999
-    decay_e: 0.9999
-    steps: 500000
