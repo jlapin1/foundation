@@ -98,6 +98,7 @@ if mconf['encoder_dict']['class_token']:
 from loaders.loader_hf import LoaderHF
 from copy import deepcopy
 
+dc['loader']['batch_size'] = config['batch_size']
 L = LoaderHF(**dc['loader'])
 
 ################################################################################

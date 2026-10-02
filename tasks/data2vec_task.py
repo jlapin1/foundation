@@ -45,6 +45,8 @@ class Data2Vec(Task):
         self.K = top_blocks
         self.layer_norm = torch.nn.LayerNorm(self.target_encoder.run_units, elementwise_affine=False, bias=False)
 
+        self.step = 0
+
     def masking_function(self, batch, rate, samp_num=0):
         device = batch['mz'].device
         
@@ -76,6 +78,7 @@ class Data2Vec(Task):
         }, inds
 
     def inptarg(self, batch):
+        self.step += 1
         BS, SL = batch['mz'].shape
         self.SL = SL
 
@@ -115,7 +118,8 @@ class Data2Vec(Task):
         torch.save(self.target_encoder.state_dict(), f"{save_directory}/weights/target_encoder_JEPA_{remark}.wts")
 
     def log_dict(self):
-        dic = compute_embedding_variance_metrics(self.target)
+        rank = True if self.step % 1000 == 0 else False
+        dic = compute_embedding_variance_metrics(self.target, rank=rank)
         return {
             'ema_tau': self.ema.decay_current.item()
         } | dic

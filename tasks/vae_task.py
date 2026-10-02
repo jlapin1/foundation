@@ -86,8 +86,14 @@ class VAE(Task):
         mu = prediction['mu']
         std = prediction['std']
 
-        kl_loss = -0.5 * torch.sum(1+torch.log(std**2) - mu**2 - std**2, dim=1).mean()
-
-        loss = recon_loss.mean() + (self.kl_weight * kl_loss)
+        self.kl_loss = -0.5 * torch.sum(1+torch.log(std**2) - mu**2 - std**2, dim=1).mean()
+        
+        loss = recon_loss.mean() + (self.kl_weight * self.kl_loss)
 
         return loss
+
+    def log_dict(self):
+        return {
+            'kl_loss': self.kl_loss.item()
+        }
+
