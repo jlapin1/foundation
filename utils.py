@@ -219,14 +219,19 @@ def compute_embedding_variance_metrics(
     Returns:
         dict: Dictionary containing calculated metrics.
     """
-        
-    N, sl, d = z.shape
+    
+    if z.ndim==2:
+        N, d = z.shape
+        z_nbd = z
+    elif z.ndim==3:
+        N, sl, d = z.shape
+        z_nbd = z.reshape(-1, d)
     
     output = {}
 
     # 1. Per-Dimension Variance & Total Variance
     # Unbiased sample variance along the batch dimension
-    per_dim_var = th.var(z, dim=[0,1], unbiased=True)  # Shape: (d,)
+    per_dim_var = th.var(z_nbd, dim=0, unbiased=True)  # Shape: (d,)
     total_var = th.sum(per_dim_var)
     dead_dims_ratio = th.mean((per_dim_var < 1e-4).float())
     output['total_variance'] = total_var.item()
@@ -235,7 +240,7 @@ def compute_embedding_variance_metrics(
     if rank:
         # 2. Singular Value Decomposition (SVD) on Covariance
         # Center the embeddings: Z_centered (N, d)
-        z_centered = z - th.mean(z, dim=[0,1], keepdim=True)
+        z_centered = z_nbd - th.mean(z_nbd, dim=0, keepdim=True)
         
         # Compute singular values S of the centered batch
         # Note: SVD on Z_centered scales as S_i = sqrt((N-1) * covariance_eigenvalue_i)
@@ -255,13 +260,14 @@ def compute_embedding_variance_metrics(
         normalized_rank = effective_rank / d
         output['normalized_rank'] = normalized_rank.item()
     
-    # 4. Intra-Sequence / Token-wise Variance
-    token_var = th.mean(th.var(z, dim=1, unbiased=True))
-    output['token_variance'] = token_var.item()
+    if z.ndim==3:
+        # 4. Intra-Sequence / Token-wise Variance
+        token_var = th.mean(th.var(z, dim=1, unbiased=True))
+        output['token_variance'] = token_var.item()
 
-    # 5. Inter-Instance Variance
-    seq_means = th.mean(z, dim=1)
-    instance_var = th.mean(th.var(seq_means, dim=0, unbiased=True))
-    output['inter_instance_variance'] = instance_var.item()
+        # 5. Inter-Instance Variance
+        seq_means = th.mean(z, dim=1)
+        instance_var = th.mean(th.var(seq_means, dim=0, unbiased=True))
+        output['inter_instance_variance'] = instance_var.item()
 
     return output
