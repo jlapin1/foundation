@@ -82,7 +82,7 @@ class VAE(Task):
     def loss(self, prediction):
         spectrum = prediction['spectrum']
         weights = self.rectify_target_for_looped(spectrum)
-        weights = 1
+        #weights = 1
         recon_loss = 1 - (self.target*spectrum).sum(1) / self.target.norm(dim=1) / spectrum.norm(dim=1)
         recon_loss *= weights
 
@@ -102,9 +102,8 @@ class VAE(Task):
         weight = 1
         if multiple > 1:
             self.target = self.target.repeat(multiple, 1, 1).reshape(-1, self.target.shape[-1])
-            wvec = torch.arange(1, multiple+1, 1).type(torch.float32).to(prediction.device)
-            wvec /= multiple
-            weight = wvec#wvec**1.5 / (wvec**1.5).sum()
+            weight = torch.ones(multiple, device=prediction.device, dtype=torch.float32) / (multiple-1)
+            weight[-1] = 1
             weight = weight[:,None].tile([1, bs]).reshape(-1,)
         return weight
 

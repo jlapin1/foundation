@@ -76,6 +76,7 @@ class Encoder(nn.Module):
         device=th.device('cpu'),
         masked=False,
         return_all=False,
+        mask_absent_peaks=True,
         **kwargs
     ):
         super(Encoder, self).__init__()
@@ -103,6 +104,7 @@ class Encoder(nn.Module):
         self.device = device
         self.masked = masked
         self.return_all = return_all
+        self.mask_absent_peaks = mask_absent_peaks
         
         # m/z Fourier Features
         mdim = mz_units//4 if subdivide else mz_units
@@ -276,7 +278,7 @@ class Encoder(nn.Module):
         return ce_emb
 
     def spectrum_mask(self, length, xshape, spectrum_sl):
-        if length != None:
+        if length != None and self.mask_absent_peaks:
             
             grid = th.tile(
                 th.arange(spectrum_sl, dtype=th.int32)[None].to(length.device), 
