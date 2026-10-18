@@ -52,7 +52,7 @@ class VAE(Task):
             'x': mzab,
             'charge': batch['charge'],
             'mass': batch['mass'],
-            'length': batch['length']
+            'length': (mzab[...,0]!=0).sum(1),
         }
 
         masses = batch['mz']
@@ -81,16 +81,32 @@ class VAE(Task):
 
     def loss(self, prediction):
         spectrum = prediction['spectrum']
+        weights = self.rectify_target_for_looped(spectrum)
+        weights = 1
         recon_loss = 1 - (self.target*spectrum).sum(1) / self.target.norm(dim=1) / spectrum.norm(dim=1)
+        recon_loss *= weights
 
         mu = prediction['mu']
         std = prediction['std']
 
-        self.kl_loss = -0.5 * torch.sum(1+torch.log(std**2) - mu**2 - std**2, dim=1).mean()
+        self.kl_loss = -0.5 * torch.sum(1+torch.log(std**2) - mu**2 - std**2, dim=1)
+        self.kl_loss = (weights * self.kl_loss).mean()
         
-        loss = recon_loss.mean() + (self.kl_weight * self.kl_loss)
+        loss = recon_loss.mean() + (self.kl_weight * self.kl_loss.mean())
 
         return loss
+
+    def rectify_target_for_looped(self, prediction):
+        bs = self.target.shape[0]
+        multiple = prediction.shape[0] // self.target.shape[0]
+        weight = 1
+        if multiple > 1:
+            self.target = self.target.repeat(multiple, 1, 1).reshape(-1, self.target.shape[-1])
+            wvec = torch.arange(1, multiple+1, 1).type(torch.float32).to(prediction.device)
+            wvec /= multiple
+            weight = wvec#wvec**1.5 / (wvec**1.5).sum()
+            weight = weight[:,None].tile([1, bs]).reshape(-1,)
+        return weight
 
     def log_dict(self):
         return {

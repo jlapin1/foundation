@@ -41,43 +41,43 @@ def init_encoder_weights(module):
 
 class Encoder(nn.Module):
     def __init__(self,
-                 # 1D options
-                 in_units=2, # input units from mz/ab tensor
-                 running_units=512, # num units running throughout model
-                 sequence_length=100, # maximum number of peaks
-                 mz_units=512, # units in mz fourier vector
-                 ab_units=256, # units in ab fourier vector
-                 subdivide=False, # subdivide mz units in 2s and expand-concat
-                 use_charge=False, # inject charge into TransBlocks
-                 use_energy=False, # inject energy into TransBlocks
-                 use_mass=False, # injuect mass into TransBlocks
-                 class_token=False, # constant learned class token
-                 ce_units=256, # units for transformation of mzab fourier vectors
-                 att_d=64, # attention qkv dimension units
-                 att_h=4,  # attention qkv heads
-                 gate=False, # input dependent gate following weights*V
-                 alphabet=False, # single parameters on residual and skip connections
-                 ffn_multiplier=4, # multiply inp units for 1st FFN transform
-                 prenorm=True, # normalization before attention/ffn layers
-                 norm_type='layer', # normalization type
-                 prec_type=None, # inject_pre | inject_ffn | inject_norm | None
-                 depth=9, # number of transblocks
-                 # Pairwise options
-                 bias=False, # use pairwise mz tensor to create SA-bias
-                 dropout=0, # dropout rate for residuals in attention and feed forward
-                 pw_mz_units=None, # sinusoidal units to expand pw tensor into
-                 pw_run_units=None, # units to project pw tensor to after sinusoidal expansion
-                 pw_attention_ch=32, # triangle attention channels
-                 pw_attention_h=4, # triangle attention heads
-                 pw_blocks=2, # number of pairstack blocks for pairwise features
-                 pw_n=4, # pair transition unit multiplier
-                 # Miscellaneous
-                 recycling_its=1, # recycling iterations
-                 device=th.device('cpu'),
-                 masked=False,
-                 return_all=False,
-                 **kwargs
-                 ):
+        # 1D options
+        in_units=2, # input units from mz/ab tensor
+        running_units=512, # num units running throughout model
+        sequence_length=100, # maximum number of peaks
+        mz_units=512, # units in mz fourier vector
+        ab_units=256, # units in ab fourier vector
+        subdivide=False, # subdivide mz units in 2s and expand-concat
+        use_charge=False, # inject charge into TransBlocks
+        use_energy=False, # inject energy into TransBlocks
+        use_mass=False, # injuect mass into TransBlocks
+        class_token=False, # constant learned class token
+        ce_units=256, # units for transformation of mzab fourier vectors
+        att_d=64, # attention qkv dimension units
+        att_h=4,  # attention qkv heads
+        gate=False, # input dependent gate following weights*V
+        alphabet=False, # single parameters on residual and skip connections
+        ffn_multiplier=4, # multiply inp units for 1st FFN transform
+        prenorm=True, # normalization before attention/ffn layers
+        norm_type='layer', # normalization type
+        prec_type=None, # inject_pre | inject_ffn | inject_norm | None
+        depth=9, # number of transblocks
+        iterations=1, # loop iterations
+        # Pairwise options
+        bias=False, # use pairwise mz tensor to create SA-bias
+        dropout=0, # dropout rate for residuals in attention and feed forward
+        pw_mz_units=None, # sinusoidal units to expand pw tensor into
+        pw_run_units=None, # units to project pw tensor to after sinusoidal expansion
+        pw_attention_ch=32, # triangle attention channels
+        pw_attention_h=4, # triangle attention heads
+        pw_blocks=2, # number of pairstack blocks for pairwise features
+        pw_n=4, # pair transition unit multiplier
+        # Miscellaneous
+        device=th.device('cpu'),
+        masked=False,
+        return_all=False,
+        **kwargs
+    ):
         super(Encoder, self).__init__()
         self.run_units = running_units
         self.sl = sequence_length
@@ -99,7 +99,7 @@ class Encoder(nn.Module):
         self.prenorm = prenorm
         self.norm_type = norm_type
         self.prec_type = prec_type
-        self.its = recycling_its
+        self.its = iterations
         self.device = device
         self.masked = masked
         self.return_all = return_all
@@ -198,31 +198,18 @@ class Encoder(nn.Module):
             ) 
             for _ in range(depth)
         ])
-        self.main_proj = nn.Identity()#L.Dense(embedding_units, kernel_initializer=I.Zeros())
         
         # Normalization type
         self.norm = mp.get_norm_type(norm_type)
         
-        # Recycling embedder
-        # self.alpha must always be defined for backwards compatibility (until 240826)
-        grad = True if recycling_its > 1 else False
-        self.alpha = nn.Parameter(th.tensor(1.0), requires_grad=grad)
-        if self.its > 1: 
-            beta =  0.1 if recycling_its > 1 else 1.0
-            self.embed_0 = nn.Parameter(
-                nn.init.normal_(th.empty(1000, running_units), 0, 1), 
-                requires_grad=True
+        # Loopering iterations
+        if iterations > 1:
+            self.iteration_embedder = nn.Sequential(
+                nn.Linear(running_units, running_units),
+                nn.SiLU(),
+                nn.Linear(running_units, running_units),
             )
-            self.main_alpha = nn.Parameter(th.tensor(1.0), requires_grad=True)
-            self.main_beta = nn.Parameter(th.tensor(beta), requires_grad=True)
-            self.recyc = nn.Sequential(
-                self.norm(running_units) if prenorm else nn.Identity(),
-                nn.Linear(running_units, running_units) if False else nn.Identity(),
-                nn.Identity() if prenorm else self.norm(running_units)
-            ) if self.its > 1 else nn.Identity()
-        
-            self.alphacyc = nn.Parameter(th.tensor(1. / self.its), requires_grad=True)
-        
+            
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
         self.apply(init_encoder_weights)
@@ -288,16 +275,16 @@ class Encoder(nn.Module):
         
         return ce_emb
 
-    def spectrum_mask(self, length, xshape):
+    def spectrum_mask(self, length, xshape, spectrum_sl):
         if length != None:
             
             grid = th.tile(
-                th.arange(xshape[1], dtype=th.int32)[None].to(length.device), 
-                (xshape[0], 1)
+                th.arange(spectrum_sl, dtype=th.int32)[None].to(length.device), 
+                (len(length), 1)
             ) # bs, seq_len
             mask = grid >= length[:, None]
-            if self.use_class_token or (self.prec_type is not None and 'pretoken' in self.prec_type):
-                num = 2 if self.prec_type == 'pretoken_separate' else 1
+            num = xshape[1] - spectrum_sl
+            if num != 0:
                 prepend = th.full((mask.shape[0], num), fill_value=False, device=mask.device)
                 mask = th.cat([prepend, mask], dim=1)
             mask = (1e7*mask).type(th.float32)
@@ -317,8 +304,8 @@ class Encoder(nn.Module):
         return out
 
     def remove_pretoken(self, tensor):
-        prepend = out[:,0]
-        return out[:,1:], prepend
+        prepend = tensor[:,0]
+        return tensor[:,1:], prepend
 
     def add_pretokens(self, tensor, ce_emb):
         if self.prec_type is not None and 'pretoken' in self.prec_type:
@@ -334,6 +321,37 @@ class Encoder(nn.Module):
                 tensor = self.prepend_token(self.class_token, tensor)
 
         return tensor, ce_emb
+    
+    def Tete(
+        self,
+        x,
+        charge=None,
+        energy=None,
+        mass=None,
+        inp_mask=None,
+    ):
+        # Spectrum level embeddings
+        ce_emb = self.spectrum_level_embeddings(charge, energy, mass)
+        
+        # Feed forward
+        mzab_dic = self.MzAb(x, inp_mask)
+        mabemb = mzab_dic['1d'];pwemb = mzab_dic['2d']
+        if self.bias == 'pairwise':
+            pwemb = self.PwSeq(pwemb)
+        else:
+            pwemb = None
+        
+        out = self.first(mabemb)
+        if self.masked:
+            out[x[...,0] < 0] = self.mask_token
+
+        # Attach pretoken(s)
+        out, ce_emb = self.add_pretokens(out, ce_emb)
+
+        return {'out': out, 'ce_emb': ce_emb, 'pw_emb': pwemb}
+
+    def Schwanz(self, inp):
+        return inp
 
     def Main(self, inp, embed=None, mask=None, pwtsr=None, return_full=False):
         out = inp
@@ -346,63 +364,42 @@ class Encoder(nn.Module):
             if self.return_all:
                 all_outs.append(out)
         
-        return {'out': self.main_proj(out), 'all': all_outs, 'other': other}
+        return {'out': out, 'all': all_outs, 'other': other}
     
     def UpdateEmbed(self, 
-                    x, 
-                    charge=None, 
-                    energy=None, 
-                    mass=None,
-                    length=None, 
-                    emb=None,
-                    inp_mask=None,
-                    tag_array=None,
-                    return_mask=False,
-                    return_full=False,
-                    ):
-        # Create mask
-        mask = self.spectrum_mask(length, x.shape)
-        
-        # Spectrum level embeddings
-        ce_emb = self.spectrum_level_embeddings(charge, energy, mass)
-        
-        # Feed forward
-        mzab_dic = self.MzAb(x, inp_mask)
-        mabemb = mzab_dic['1d'];pwemb = mzab_dic['2d']
-        if self.bias == 'pairwise':
-            pwemb = self.PwSeq(pwemb) #pwemb = self.pwfirst(pwemb)# + self.alphapw * self.pospw()
-        
-        out = self.first(mabemb)
-        if self.masked:
-            out[x[...,0] < 0] = self.mask_token
-
-        # Attach pretoken(s)
-        out, ce_emb = self.add_pretokens(out, ce_emb)
-        
+        x, 
+        ce_embed=None,
+        pwtsr=None,
+        length=None, 
+        inp_mask=None,
+        tag_array=None,
+        return_mask=False,
+        return_full=False,
+        sequence_length=None,
+        iteration=0,
+    ):
+                
         # Reycling the embedding with normalization, perhaps dense transform
         if self.its > 1:
-            out = self.alpha*out + self.alphacyc*self.recyc(emb)
+            IT = th.full((1, 1), iteration, device=x.device, dtype=th.float32)
+            ITff = mp.FourierFeatures(IT, 1, 10, x.shape[-1]).squeeze()
+            iteration_embedding = self.iteration_embedder(ITff)
+            x = self.prepend_token(iteration_embedding, x)
+
+        # Create mask
+        mask = self.spectrum_mask(length, x.shape, sequence_length)
         
         # Main transformer block
-        main = self.Main(out, embed=ce_emb, mask=mask, pwtsr=pwemb, return_full=return_full) # AlphaFold has +=
-        
-        # Modulating the recycling iterations
-        emb = (
-            self.main_alpha*emb + self.main_beta*main['out']
-            if self.its > 1 else main['out']
+        main = self.Main(
+            x,
+            embed=ce_embed,
+            mask=mask,
+            pwtsr=pwtsr,
+            return_full=return_full
         )
-
-        output = {'emb': emb, 'mask': mask, 'other': main['other'], 'all': main['all']}
         
-        return output
-    
-    def RecycleTrainOutput(self, input_dict):
-        iterations = th.randint(0, self.its, ())
-        with th.no_grad():
-            emb = self(**input_dict, iterations=iterations)['emb']
-        input_dict['emb'] = emb
-        output = self(**input_dict, iterations=1)
-
+        output = {'emb': main['out'], 'mask': mask, 'other': main['other'], 'all': main['all']}
+        
         return output
 
     def forward(self, 
@@ -416,39 +413,41 @@ class Encoder(nn.Module):
              tag_array=None,
              iterations=None, 
              return_mask=False,
-             return_full=False
+             return_full=False,
     ):
         its = self.its  if iterations==None else iterations
         
-        # Recycled embedding
-        emb = (
-            emb 
-            if emb is not None else (
-                th.zeros(x.shape[0], self.sl, self.run_units)
-                if self.its == 1 else
-                self.embed_0[None, :x.shape[1]].tile([x.shape[0], 1, 1])
-            )
-        ).to(x.device)
+        # Head
+        spectrum_sl = x.shape[1]
+        Tete = self.Tete(x, charge, energy, mass, inp_mask=inp_mask)
         
-        output = {'emb': emb, 'other': None}
-        for _ in range(its):
-            output = self.UpdateEmbed(
-                x, 
-                charge=charge, 
-                energy=energy, 
-                mass=mass, 
-                length=length, 
-                emb=emb, 
-                inp_mask=inp_mask, 
-                tag_array=tag_array, 
+        # Middle
+        latents = []
+        latent = Tete['out']
+        for It in range(its):
+            output_ = self.UpdateEmbed(
+                latent,
+                ce_embed=Tete['ce_emb'],
+                pwtsr=Tete['pw_emb'],
+                length=length,
+                inp_mask=inp_mask,
+                tag_array=tag_array,
                 return_mask=return_mask,
-                return_full=return_full
+                return_full=return_full,
+                sequence_length=spectrum_sl,
+                iteration=It,
             )
-            emb = output['emb']
+            if its>1:
+                output_['emb'], _ = self.remove_pretoken(output_['emb'])
+            latents.append(output_['emb'])
+            latent = latents[-1]
         
-        return output
-
-#model = Encoder(recycling_its=4)
-#inp = th.randn(100,100,2)
-#out = model(inp, 2)
+        # Tail
+        tail_input = th.cat(latents, dim=0) if its>1 and self.training else latents[-1]
+        final = self.Schwanz(tail_input)
+        #if its>1:
+        #    other = list(tail_input.split(x.shape[0], 0))
+        #    final = other.pop(-1)
+        
+        return {'emb': final}
 

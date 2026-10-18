@@ -7,9 +7,10 @@ encoder_dict:
   running_units: 512
   att_d: 64
   att_h: 8
+  depth: 9
+  iterations: 1
   gate: False
   alphabet: False
-  depth: 9
   ffn_multiplier: 2
   prenorm: True
   prec_type: # pretoken_separate | pretoken_fuse | inject_pre
@@ -18,7 +19,6 @@ encoder_dict:
   class_token: True
   bias: # 'pairwise' | 'regular' | False | None
   dropout: 0.25
-  recycling_its: 1
   pw_mz_units: 512
   pw_run_units: 64
   pw_attention_ch: 32

@@ -319,9 +319,9 @@ def train_step(batch, task, enc_opt, head_opt):
     head_outputs = [task]
 
     inp = T[task].inptarg(batch)
-    inp['length'] = batch['length']
+    #inp['length'] = batch['length']
     
-    if hasattr(encoder, 'its'):
+    if False:#hasattr(encoder, 'its'):
         if encoder.its == 1: 
             enc_output = encoder(**inp)
         else:

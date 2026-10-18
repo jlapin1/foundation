@@ -1,18 +1,18 @@
 seed:
 max_peaks: 100
 epochs: 50
-batch_size: 512
+batch_size: 100
 lr_warmup_steps: 20000
 lr: 1e-4
 max_steps: 1e10
 tasks:
   #- NaryTask
-  #- VAE
+  - VAE
   #- JEPA
-  - Data2Vec
+  #- Data2Vec
 
 # Downstream evaluation
-steps_per_report: 5000
+steps_per_report: 15000
 first_report:
   pretrain_execute: False
   only_dnv: False
@@ -28,7 +28,7 @@ nn_eval:
 
 # Logging
 log_wandb: True
-wandb_project: foundation
+wandb_project: nottobeusedagain
 wandb_entity: joellapin
 
 # Loading and Saving
