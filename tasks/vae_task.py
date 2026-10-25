@@ -34,12 +34,13 @@ class VAE(Task):
         
         # Get new subsampled spectra, sorted by m/z
         sampled_mzs = batch['mz'].gather(1, a)
-        keep_bool_array = torch.where(array >= keep_amount[:,None])
-        sampled_mzs[keep_bool_array] = 9e9
         sampled_intensities = batch['ab'].gather(1, a)
+        dont_keep_bool_array = torch.where(array >= keep_amount[:,None])
+        sampled_mzs[dont_keep_bool_array] = 9e9
         sorted_mzs, b = sampled_mzs.sort(dim=1)
-        sorted_mzs[keep_bool_array] = 0
+        sorted_mzs[dont_keep_bool_array] = 0
         sorted_intensities = sampled_intensities.gather(1, b)
+        sorted_intensities[dont_keep_bool_array] = 0
 
         return {
             'mz': sorted_mzs[:, :max_seq_length],
@@ -82,7 +83,6 @@ class VAE(Task):
     def loss(self, prediction):
         spectrum = prediction['spectrum']
         weights = self.rectify_target_for_looped(spectrum)
-        #weights = 1
         recon_loss = 1 - (self.target*spectrum).sum(1) / self.target.norm(dim=1) / spectrum.norm(dim=1)
         recon_loss *= weights
 
@@ -102,9 +102,9 @@ class VAE(Task):
         weight = 1
         if multiple > 1:
             self.target = self.target.repeat(multiple, 1, 1).reshape(-1, self.target.shape[-1])
-            weight = torch.ones(multiple, device=prediction.device, dtype=torch.float32) / (multiple-1)
-            weight[-1] = 1
-            weight = weight[:,None].tile([1, bs]).reshape(-1,)
+            #weight = torch.ones(multiple, device=prediction.device, dtype=torch.float32) / (multiple-1)
+            #weight[-1] = 1
+            #weight = weight[:,None].tile([1, bs]).reshape(-1,)
         return weight
 
     def log_dict(self):

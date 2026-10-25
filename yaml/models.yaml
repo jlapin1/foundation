@@ -7,8 +7,8 @@ encoder_dict:
   running_units: 512
   att_d: 64
   att_h: 8
-  depth: 1
-  iterations: 8
+  depth: 9
+  iterations: 1
   gate: False
   alphabet: False
   ffn_multiplier: 2
