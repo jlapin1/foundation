@@ -271,3 +271,21 @@ def compute_embedding_variance_metrics(
         output['inter_instance_variance'] = instance_var.item()
 
     return output
+
+def sample_lognormal_poisson(minimum=1, maximum=10, num_samples=1, target_mean=24.0, sigma=0.5):
+    """
+    Samples integers from a log-normal Poisson distribution.
+    - target_mean controls roughly where the peak is.
+    - sigma controls the weight/length of the long tail.
+    """
+    # Step 1: Sample tau from a normal distribution in log-space
+    mu = np.log(target_mean - minimum + 1) - (sigma**2 / 2)
+    tau_samples = np.random.normal(loc=mu, scale=sigma, size=num_samples)
+
+    # Step 2: Convert to Poisson rates and sample integers
+    rates = np.exp(tau_samples)
+    integers = np.random.poisson(rates) + minimum # +1 to shift range away from 0 if needed
+    #integers[integers < minimum] = minimum
+    integers[integers > maximum] = maximum
+
+    return integers

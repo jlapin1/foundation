@@ -7,8 +7,8 @@ encoder_dict:
   running_units: 512
   att_d: 64
   att_h: 8
-  depth: 9
-  iterations: 1
+  depth: 3
+  iterations: 10
   gate: False
   alphabet: False
   ffn_multiplier: 2
@@ -25,7 +25,7 @@ encoder_dict:
   pw_attention_h: 2
   pw_n: 4
   pw_blocks: 0
-  mask_absent_peaks: True
+  mask_absent_peaks: False
 
 header_dict:
   in_units: 256

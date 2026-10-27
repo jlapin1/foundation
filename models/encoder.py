@@ -2,6 +2,8 @@ from . import model_parts as mp
 from . import model_parts_pw as pw
 import torch as th
 from torch import nn
+from utils import sample_lognormal_poisson
+import numpy as np
 I = nn.init
 
 def init_encoder_weights(module):
@@ -211,6 +213,7 @@ class Encoder(nn.Module):
                 nn.SiLU(),
                 nn.Linear(running_units, running_units),
             )
+            self.adapter = nn.Linear(2*running_units, running_units)
             
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
@@ -324,7 +327,7 @@ class Encoder(nn.Module):
 
         return tensor, ce_emb
     
-    def Tete(
+    def Prelude(
         self,
         x,
         charge=None,
@@ -352,7 +355,7 @@ class Encoder(nn.Module):
 
         return {'out': out, 'ce_emb': ce_emb, 'pw_emb': pwemb}
 
-    def Schwanz(self, inp):
+    def Coda(self, inp):
         return inp
 
     def Main(self, inp, embed=None, mask=None, pwtsr=None, return_full=False):
@@ -369,10 +372,11 @@ class Encoder(nn.Module):
         return {'out': out, 'all': all_outs, 'other': other}
     
     def UpdateEmbed(self, 
-        x, 
+        x, # s_i in paper
+        e,
         ce_embed=None,
         pwtsr=None,
-        length=None, 
+        length=None,
         inp_mask=None,
         tag_array=None,
         return_mask=False,
@@ -380,9 +384,12 @@ class Encoder(nn.Module):
         sequence_length=None,
         iteration=0,
     ):
-                
+
         # Reycling the embedding with normalization, perhaps dense transform
         if self.its > 1:
+            # Unite the prelude (e) and the current embedding (x)
+            x = self.adapter(th.cat([x, e], dim=-1))
+
             IT = th.full((1, 1), iteration, device=x.device, dtype=th.float32)
             ITff = mp.FourierFeatures(IT, 1, 10, x.shape[-1]).squeeze()
             iteration_embedding = self.iteration_embedder(ITff)
@@ -404,49 +411,78 @@ class Encoder(nn.Module):
         
         return output
 
-    def forward(self, 
-             x,
-             charge=None, 
-             energy=None, 
-             mass=None,
-             length=None, 
-             emb=None, 
-             inp_mask=None,
-             tag_array=None,
-             iterations=None, 
-             return_mask=False,
-             return_full=False,
+    @th.no_grad()
+    def update_embed_without_gradients(self, latent, e, ce_embed, pwtsr, length, inp_mask, tag_array, return_mask, return_full, sequence_length, iteration):
+        return self.UpdateEmbed(
+            latent, e, ce_embed, pwtsr, length, inp_mask, tag_array, return_mask, return_full, sequence_length, iteration
+        )
+
+    def forward(
+        self,
+        x,
+        charge=None, 
+        energy=None, 
+        mass=None,
+        length=None,
+        emb=None,
+        inp_mask=None,
+        tag_array=None,
+        iterations=None,
+        return_mask=False,
+        return_full=False,
     ):
-        its = self.its  if iterations==None else iterations
+        if self.training:
+            its = sample_lognormal_poisson(minimum=1, maximum=self.its, target_mean=self.its//3, sigma=0.01).item()
+            grad_its = np.minimum(its, 3).item()
+            no_grad_its = its - grad_its
+        else:
+            its = self.its  if iterations==None else iterations
+            no_grad_its = 0
         
-        # Head
+        # Prelude
         spectrum_sl = x.shape[1]
-        Tete = self.Tete(x, charge, energy, mass, inp_mask=inp_mask)
+        P = self.Prelude(x, charge, energy, mass, inp_mask=inp_mask)
         
         # Middle
         latents = []
-        latent = Tete['out']
+        latent = th.empty(*P['out'].shape).normal_(0, 0.0632).to(P['out'].device)
         for It in range(its):
-            output_ = self.UpdateEmbed(
-                latent,
-                ce_embed=Tete['ce_emb'],
-                pwtsr=Tete['pw_emb'],
-                length=length,
-                inp_mask=inp_mask,
-                tag_array=tag_array,
-                return_mask=return_mask,
-                return_full=return_full,
-                sequence_length=spectrum_sl,
-                iteration=It,
-            )
+            if It < no_grad_its:
+                output_ = self.update_embed_without_gradients(
+                    latent,
+                    e=P['out'],
+                    ce_embed=P['ce_emb'],
+                    pwtsr=P['pw_emb'],
+                    length=length,
+                    inp_mask=inp_mask,
+                    tag_array=tag_array,
+                    return_mask=return_mask,
+                    return_full=return_full,
+                    sequence_length=spectrum_sl,
+                    iteration=It,
+                )
+            else:
+                output_ = self.UpdateEmbed(
+                    latent,
+                    e=P['out'],
+                    ce_embed=P['ce_emb'],
+                    pwtsr=P['pw_emb'],
+                    length=length,
+                    inp_mask=inp_mask,
+                    tag_array=tag_array,
+                    return_mask=return_mask,
+                    return_full=return_full,
+                    sequence_length=spectrum_sl,
+                    iteration=It,
+                )
             if its>1:
                 output_['emb'], _ = self.remove_pretoken(output_['emb'])
             latents.append(output_['emb'])
             latent = latents[-1]
         
-        # Tail
-        tail_input = th.cat(latents, dim=0) if its>1 and self.training else latents[-1]
-        final = self.Schwanz(tail_input)
+        # Coda
+        coda_input = th.cat(latents, dim=0) if its>1 and self.training else latents[-1]
+        final = self.Coda(coda_input)
         #if its>1:
         #    other = list(tail_input.split(x.shape[0], 0))
         #    final = other.pop(-1)
