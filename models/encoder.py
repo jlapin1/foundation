@@ -64,7 +64,10 @@ class Encoder(nn.Module):
         norm_type='layer', # normalization type
         prec_type=None, # inject_pre | inject_ffn | inject_norm | None
         depth=9, # number of transblocks
+        # Looping
         iterations=1, # loop iterations
+        loop_style='one', # one | two
+        embed_loop_iter=True,
         # Pairwise options
         bias=False, # use pairwise mz tensor to create SA-bias
         dropout=0, # dropout rate for residuals in attention and feed forward
@@ -103,6 +106,8 @@ class Encoder(nn.Module):
         self.norm_type = norm_type
         self.prec_type = prec_type
         self.its = iterations
+        self.loop_style = loop_style
+        self.embed_loop_iter = embed_loop_iter
         self.device = device
         self.masked = masked
         self.return_all = return_all
@@ -208,12 +213,14 @@ class Encoder(nn.Module):
         
         # Loopering iterations
         if iterations > 1:
-            self.iteration_embedder = nn.Sequential(
-                nn.Linear(running_units, running_units),
-                nn.SiLU(),
-                nn.Linear(running_units, running_units),
-            )
-            self.adapter = nn.Linear(2*running_units, running_units)
+            if embed_loop_iter:
+                self.iteration_embedder = nn.Sequential(
+                    nn.Linear(running_units, running_units),
+                    nn.SiLU(),
+                    nn.Linear(running_units, running_units),
+                )
+            if loop_style == 'two':
+                self.adapter = nn.Linear(2*running_units, running_units)
             
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
         
@@ -373,7 +380,7 @@ class Encoder(nn.Module):
     
     def UpdateEmbed(self, 
         x, # s_i in paper
-        e,
+        e=None,
         ce_embed=None,
         pwtsr=None,
         length=None,
@@ -387,13 +394,14 @@ class Encoder(nn.Module):
 
         # Reycling the embedding with normalization, perhaps dense transform
         if self.its > 1:
-            # Unite the prelude (e) and the current embedding (x)
-            x = self.adapter(th.cat([x, e], dim=-1))
-
-            IT = th.full((1, 1), iteration, device=x.device, dtype=th.float32)
-            ITff = mp.FourierFeatures(IT, 1, 10, x.shape[-1]).squeeze()
-            iteration_embedding = self.iteration_embedder(ITff)
-            x = self.prepend_token(iteration_embedding, x)
+            if e is not None:
+                # Unite the prelude (e) and the current embedding (x)
+                x = self.adapter(th.cat([x, e], dim=-1))
+            if self.embed_loop_iter:
+                IT = th.full((1, 1), iteration, device=x.device, dtype=th.float32)
+                ITff = mp.FourierFeatures(IT, 1, 10, x.shape[-1]).squeeze()
+                iteration_embedding = self.iteration_embedder(ITff)
+                x = self.prepend_token(iteration_embedding, x)
 
         # Create mask
         mask = self.spectrum_mask(length, x.shape, sequence_length)
@@ -406,15 +414,22 @@ class Encoder(nn.Module):
             pwtsr=pwtsr,
             return_full=return_full
         )
+
+        if self.its > 1 and self.embed_loop_iter:
+            main['out'], _ = self.remove_pretoken(main['out'])
         
         output = {'emb': main['out'], 'mask': mask, 'other': main['other'], 'all': main['all']}
         
         return output
 
     @th.no_grad()
-    def update_embed_without_gradients(self, latent, e, ce_embed, pwtsr, length, inp_mask, tag_array, return_mask, return_full, sequence_length, iteration):
+    def update_embed_without_gradients(
+        self, latent, e, ce_embed, pwtsr, length, inp_mask, 
+        tag_array, return_mask, return_full, sequence_length, iteration
+    ):
         return self.UpdateEmbed(
-            latent, e, ce_embed, pwtsr, length, inp_mask, tag_array, return_mask, return_full, sequence_length, iteration
+            latent, e, ce_embed, pwtsr, length, inp_mask, 
+            tag_array, return_mask, return_full, sequence_length, iteration
         )
 
     def forward(
@@ -431,7 +446,8 @@ class Encoder(nn.Module):
         return_mask=False,
         return_full=False,
     ):
-        if self.training:
+        # Set its and divide grad/no_grad its
+        if self.training and self.its>1 and self.loop_style=='two':
             its = sample_lognormal_poisson(minimum=1, maximum=self.its, target_mean=self.its//3, sigma=0.01).item()
             grad_its = np.minimum(its, 3).item()
             no_grad_its = its - grad_its
@@ -443,14 +459,20 @@ class Encoder(nn.Module):
         spectrum_sl = x.shape[1]
         P = self.Prelude(x, charge, energy, mass, inp_mask=inp_mask)
         
+        # Set latent and e
+        latent = P['out']
+        e = None
+        if self.its>1 and self.loop_style == 'two':
+            latent = th.empty(*P['out'].shape).normal_(0, 0.0632).to(P['out'].device)
+            e = P['out']
+
         # Middle
         latents = []
-        latent = th.empty(*P['out'].shape).normal_(0, 0.0632).to(P['out'].device)
         for It in range(its):
             if It < no_grad_its:
                 output_ = self.update_embed_without_gradients(
                     latent,
-                    e=P['out'],
+                    e=e,
                     ce_embed=P['ce_emb'],
                     pwtsr=P['pw_emb'],
                     length=length,
@@ -464,7 +486,7 @@ class Encoder(nn.Module):
             else:
                 output_ = self.UpdateEmbed(
                     latent,
-                    e=P['out'],
+                    e=e,
                     ce_embed=P['ce_emb'],
                     pwtsr=P['pw_emb'],
                     length=length,
@@ -475,8 +497,6 @@ class Encoder(nn.Module):
                     sequence_length=spectrum_sl,
                     iteration=It,
                 )
-            if its>1:
-                output_['emb'], _ = self.remove_pretoken(output_['emb'])
             latents.append(output_['emb'])
             latent = latents[-1]
         
