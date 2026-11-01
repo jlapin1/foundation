@@ -3,7 +3,7 @@ max_peaks: 100
 epochs: 50
 batch_size: 100
 lr_warmup_steps: 20000
-lr: 1e-4
+lr: 8e-5
 max_steps: 1e10
 tasks:
   #- NaryTask

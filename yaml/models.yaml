@@ -7,8 +7,8 @@ encoder_dict:
   running_units: 512
   att_d: 64
   att_h: 8
-  depth: 5
-  iterations: 1
+  depth: 2
+  iterations: 2
   gate: False
   alphabet: False
   ffn_multiplier: 2
@@ -18,7 +18,7 @@ encoder_dict:
   use_mass: False
   class_token: True
   bias: # 'pairwise' | 'regular' | False | None
-  dropout: 0
+  dropout: 0.1
   pw_mz_units: 512
   pw_run_units: 64
   pw_attention_ch: 32
@@ -28,6 +28,7 @@ encoder_dict:
   mask_absent_peaks: False
   loop_style: two
   embed_loop_iter: False
+  inject_input: True
 
 header_dict:
   in_units: 256

@@ -68,6 +68,7 @@ class Encoder(nn.Module):
         iterations=1, # loop iterations
         loop_style='one', # one | two
         embed_loop_iter=True,
+        inject_input=False,
         # Pairwise options
         bias=False, # use pairwise mz tensor to create SA-bias
         dropout=0, # dropout rate for residuals in attention and feed forward
@@ -108,6 +109,7 @@ class Encoder(nn.Module):
         self.its = iterations
         self.loop_style = loop_style
         self.embed_loop_iter = embed_loop_iter
+        self.inject_input = inject_input
         self.device = device
         self.masked = masked
         self.return_all = return_all
@@ -219,7 +221,7 @@ class Encoder(nn.Module):
                     nn.SiLU(),
                     nn.Linear(running_units, running_units),
                 )
-            if loop_style == 'two':
+            if inject_input:
                 self.adapter = nn.Linear(2*running_units, running_units)
             
         self.global_step = nn.Parameter(th.tensor(0), requires_grad=False)
@@ -461,10 +463,9 @@ class Encoder(nn.Module):
         
         # Set latent and e
         latent = P['out']
-        e = None
+        e = P['out'] if self.inject_input else None
         if self.its>1 and self.loop_style == 'two':
-            latent = th.empty(*P['out'].shape).normal_(0, 0.0632).to(P['out'].device)
-            e = P['out']
+            latent = th.zeros_like(P['out'])#th.empty(*P['out'].shape).normal_(0, 0.0632).to(P['out'].device)
 
         # Middle
         latents = []
