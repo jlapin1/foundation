@@ -8,7 +8,7 @@ encoder_dict:
   att_d: 64
   att_h: 8
   depth: 2
-  iterations: 2
+  iterations: 4
   gate: False
   alphabet: False
   ffn_multiplier: 2
@@ -26,9 +26,9 @@ encoder_dict:
   pw_n: 4
   pw_blocks: 0
   mask_absent_peaks: False
-  loop_style: two
-  embed_loop_iter: False
-  inject_input: True
+  loop_style: one
+  embed_loop_iter: True
+  inject_input: False
 
 header_dict:
   in_units: 256

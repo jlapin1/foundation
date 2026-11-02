@@ -447,6 +447,7 @@ class Encoder(nn.Module):
         iterations=None,
         return_mask=False,
         return_full=False,
+        return_all=False, # latents
     ):
         # Set its and divide grad/no_grad its
         if self.training and self.its>1 and self.loop_style=='two':
@@ -502,7 +503,7 @@ class Encoder(nn.Module):
             latent = latents[-1]
         
         # Coda
-        coda_input = th.cat(latents, dim=0) if its>1 and self.training else latents[-1]
+        coda_input = th.cat(latents, dim=0) if its>1 and (self.training|return_all) else latents[-1]
         final = self.Coda(coda_input)
         #if its>1:
         #    other = list(tail_input.split(x.shape[0], 0))
